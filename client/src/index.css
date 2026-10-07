@@ -424,6 +424,66 @@ select:focus-visible {
   }
 }
 
+.camera-panel {
+  max-width: 860px;
+  width: calc(100% - 68px);
+  margin: 0 auto 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+}
+.camera-panel-header,
+.camera-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.camera-panel-header strong {
+  font-size: 13px;
+  font-weight: 620;
+}
+.camera-preview {
+  display: none;
+  width: 100%;
+  max-height: 300px;
+  margin-top: 10px;
+  border-radius: 5px;
+  background: #1c2525;
+  object-fit: cover;
+}
+.camera-preview.visible {
+  display: block;
+}
+.camera-controls {
+  justify-content: flex-start;
+  margin-top: 10px;
+}
+.camera-status {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.vision-snapshot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.vision-snapshot p {
+  margin: 5px 0 7px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.camera-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--teal-dark);
+  font-size: 11px;
+  text-decoration: underline;
+}
+
 .composer {
   max-width: 860px;
   width: 100%;

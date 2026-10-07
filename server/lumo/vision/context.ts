@@ -2,6 +2,25 @@ import type { ToolResult } from "../tools/contracts";
 import type { VisionResult } from "./contracts";
 
 const MAX_VISION_CONTEXT = 6_000;
+export const visionResultToolResult = (
+  result: VisionResult
+): ToolResult<VisionResult> => ({
+  toolId: "vision_analyze",
+  success: !result.error,
+  data: result,
+  error: result.error
+    ? {
+        code: "execution_failed",
+        message: result.error.message,
+        retryable: result.error.retryable,
+      }
+    : null,
+  metadata: {
+    requestId: result.requestId,
+    durationMs: result.diagnostics.durationMs,
+  },
+});
+
 export const buildVisionContext = (result: ToolResult<VisionResult>) => {
   if (!result.success || !result.data || result.data.error) return null;
   const data = result.data;

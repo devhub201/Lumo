@@ -33,6 +33,7 @@ import { FILE_TOOL_IDS } from "./lumo/files/contracts";
 import { buildVisionContext } from "./lumo/vision/context";
 import {
   cameraCaptureInputSchema,
+  visionResultSchema,
   visionAnalyzeInputSchema,
 } from "./lumo/vision/contracts";
 
@@ -92,6 +93,7 @@ const lumoRouter = router({
       z.object({
         conversationId: z.string().min(1).max(36).optional(),
         text: z.string().trim().min(1).max(4000),
+        visionResult: visionResultSchema.optional(),
       })
     )
     .mutation(async ({ input }) => {

@@ -27,6 +27,9 @@ import {
   type LumoStorage,
   type LumoTurnResult,
 } from "./contracts";
+import type { ToolResult } from "./tools/contracts";
+import { buildVisionContext, visionResultToolResult } from "./vision/context";
+import type { VisionResult } from "./vision/contracts";
 
 const BASE_IDENTITY = `You are LUMO, Peter's personal AI companion and thinking partner. Be conversational and natural rather than sounding like a customer-support bot, FAQ, or scripted assistant. Be casual when the moment is casual and technically capable when the question is technical, scientific, educational, or about programming. Do not constantly announce that you are an AI. Do not use excessive emojis or pretend to have human feelings. Address Peter naturally when it fits, but do not repeat his name in every response. Do not claim to have used tools, files, memory, web, vision, voice, or blueprints unless the system explicitly provides them.`;
 
@@ -89,6 +92,7 @@ const buildContextInput = ({
   depthTopic,
   summary,
   personality,
+  toolResults = [],
 }: {
   requestId?: string;
   recentMessages: Array<{
@@ -115,6 +119,7 @@ const buildContextInput = ({
   depthTopic: string | null;
   summary: string | null;
   personality: LumoPersonality;
+  toolResults?: Array<ToolResult<unknown>>;
 }) => {
   const styleCue = isSimpleExplanation(userText)
     ? "Adapt the explanation for a ten-year-old: concrete language, short steps, and a simple analogy without being condescending."
@@ -136,6 +141,7 @@ const buildContextInput = ({
     recentMessages,
     conversationSummary: summary,
     relevantMemories: memories,
+    toolResults,
   };
 };
 
@@ -289,6 +295,7 @@ export function createLumoCore({
     async sendMessage(input: {
       conversationId?: string;
       text: string;
+      visionResult?: VisionResult;
     }): Promise<LumoTurnResult> {
       const startedAt = Date.now();
       const requestId = nanoid(12);
@@ -383,6 +390,14 @@ export function createLumoCore({
           depthTopic: conversation.depthTopic,
           summary: conversation.summary,
           personality,
+          toolResults: input.visionResult
+            ? [
+                buildVisionContext(visionResultToolResult(input.visionResult)),
+              ].filter(
+                (result): result is NonNullable<typeof result> =>
+                  result !== null
+              )
+            : [],
         })
       );
       const providerMessages = normalizedContext.messages;

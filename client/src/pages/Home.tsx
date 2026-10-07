@@ -2,6 +2,8 @@ import { Streamdown } from "streamdown";
 import {
   AlertTriangle,
   BrainCircuit,
+  Camera,
+  CameraOff,
   Check,
   ChevronRight,
   CircleDot,
@@ -11,14 +13,28 @@ import {
   Plus,
   RefreshCw,
   Save,
+  ScanEye,
   Send,
   ShieldCheck,
   Terminal,
 } from "lucide-react";
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import {
+  CameraError,
+  openCameraPreview,
+  type CameraSession,
+} from "@/lib/camera";
+import type { VisionResult } from "../../../server/lumo/vision/contracts";
 
 type MemoryKind = "preference" | "fact" | "project" | "summary" | "knowledge";
 
@@ -57,6 +73,13 @@ export default function Home() {
   const [memoryKind, setMemoryKind] = useState<MemoryKind>("fact");
   const [memoryDraft, setMemoryDraft] = useState("");
   const [memoryStatus, setMemoryStatus] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<string | null>(null);
+  const [visionSnapshot, setVisionSnapshot] = useState<VisionResult | null>(
+    null
+  );
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraSessionRef = useRef<CameraSession | null>(null);
 
   const conversationsQuery = trpc.lumo.listConversations.useQuery();
   const diagnosticsQuery = trpc.lumo.diagnostics.useQuery();
@@ -68,6 +91,7 @@ export default function Home() {
   const utils = trpc.useUtils();
   const sendMutation = trpc.lumo.send.useMutation();
   const memoryMutation = trpc.lumo.createMemory.useMutation();
+  const runVisionMutation = trpc.lumo.runVision.useMutation();
 
   const messages = (conversationQuery.data?.messages ?? []) as Message[];
   const activeConversation = conversationQuery.data?.conversation;
@@ -84,6 +108,8 @@ export default function Home() {
     setFailedText(null);
     setPendingText(null);
     setLastDiagnostics(null);
+    setVisionSnapshot(null);
+    setCameraStatus(null);
   };
 
   const startNewConversation = () => {
@@ -93,16 +119,106 @@ export default function Home() {
     setFailedText(null);
     setPendingText(null);
     setLastDiagnostics(null);
+    setVisionSnapshot(null);
+    setCameraStatus(null);
+  };
+
+  useEffect(
+    () => () => {
+      cameraSessionRef.current?.stop();
+      cameraSessionRef.current = null;
+    },
+    []
+  );
+
+  const openCamera = async () => {
+    if (cameraSessionRef.current || !cameraVideoRef.current) return;
+    setCameraStatus("Requesting camera permission…");
+    try {
+      const session = await openCameraPreview(cameraVideoRef.current, {
+        facingMode: "environment",
+      });
+      cameraSessionRef.current = session;
+      setCameraOpen(true);
+      setCameraStatus(
+        "Camera is live. Point it at something, then capture a frame."
+      );
+    } catch (error) {
+      setCameraStatus(
+        error instanceof CameraError
+          ? error.message
+          : "The camera could not be opened."
+      );
+      setCameraOpen(false);
+    }
+  };
+
+  const closeCamera = () => {
+    cameraSessionRef.current?.stop();
+    cameraSessionRef.current = null;
+    setCameraOpen(false);
+    setCameraStatus("Camera stopped. No frames are uploaded continuously.");
+  };
+
+  const captureAndAnalyze = async () => {
+    const session = cameraSessionRef.current;
+    if (!session || runVisionMutation.isPending) return;
+    setCameraStatus(
+      "Capturing one frame and sending it to LUMO’s vision pipeline…"
+    );
+    try {
+      const frame = await session.capture();
+      session.stop();
+      cameraSessionRef.current = null;
+      setCameraOpen(false);
+      const response = await runVisionMutation.mutateAsync({
+        toolId: "camera_capture",
+        arguments: { dataUrl: frame.dataUrl, mode: "understand" },
+      });
+      const result = response.result as {
+        success: boolean;
+        data?: VisionResult;
+        error?: { message?: string } | null;
+      };
+      if (!result.success || !result.data) {
+        throw new Error(
+          result.error?.message || "LUMO could not analyze that frame."
+        );
+      }
+      setVisionSnapshot(result.data);
+      setCameraStatus(
+        "Frame analyzed. Ask LUMO a question about what it sees."
+      );
+    } catch (error) {
+      setCameraStatus(
+        error instanceof Error
+          ? error.message
+          : "The camera frame could not be analyzed."
+      );
+    }
   };
 
   const submitText = (text: string) => {
     const cleanText = text.trim();
     if (!cleanText || sendMutation.isPending) return;
+    if (
+      /^(?:lumo[,:]?\s*)?(?:camera kholo|open camera|start camera)$/i.test(
+        cleanText
+      )
+    ) {
+      setDraft("");
+      void openCamera();
+      return;
+    }
     setErrorText(null);
     setFailedText(null);
     setPendingText(cleanText);
     sendMutation.mutate(
-      { conversationId: selectedId ?? undefined, text: cleanText },
+      {
+        conversationId: selectedId ?? undefined,
+        text: cleanText,
+        visionResult: visionSnapshot ?? undefined,
+      },
       {
         onSuccess: result => {
           setSelectedId(result.conversation.id);
@@ -365,6 +481,79 @@ export default function Home() {
               )}
             </div>
           )}
+
+          <section className="camera-panel" aria-label="LUMO camera">
+            <div className="camera-panel-header">
+              <div>
+                <p className="eyebrow">visual input</p>
+                <strong>Camera to LUMO</strong>
+              </div>
+              <Camera size={16} className="muted" />
+            </div>
+            <video
+              ref={cameraVideoRef}
+              className={`camera-preview ${cameraOpen ? "visible" : ""}`}
+              autoPlay
+              muted
+              playsInline
+              aria-label="Live camera preview"
+            />
+            <div className="camera-controls">
+              {!cameraOpen ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void openCamera()}
+                  disabled={runVisionMutation.isPending}
+                >
+                  <Camera size={14} /> Open camera
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void captureAndAnalyze()}
+                    disabled={runVisionMutation.isPending}
+                  >
+                    {runVisionMutation.isPending ? (
+                      <Loader2 size={14} className="spin" />
+                    ) : (
+                      <ScanEye size={14} />
+                    )}
+                    Capture & analyze
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={closeCamera}
+                    disabled={runVisionMutation.isPending}
+                  >
+                    <CameraOff size={14} /> Stop
+                  </Button>
+                </>
+              )}
+            </div>
+            {cameraStatus && <p className="camera-status">{cameraStatus}</p>}
+            {visionSnapshot && (
+              <div className="vision-snapshot">
+                <span className="memory-kind">current visual context</span>
+                <p>
+                  {visionSnapshot.description ||
+                    "Frame analyzed. Ask a question below."}
+                </p>
+                <button
+                  type="button"
+                  className="camera-clear"
+                  onClick={() => setVisionSnapshot(null)}
+                >
+                  Clear visual context
+                </button>
+              </div>
+            )}
+          </section>
 
           <form className="composer" onSubmit={handleSend}>
             <Textarea
