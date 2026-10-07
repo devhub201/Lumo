@@ -3,11 +3,12 @@ import type { VisionResult } from "./contracts";
 
 const MAX_VISION_CONTEXT = 6_000;
 export const visionResultToolResult = (
-  result: VisionResult
-): ToolResult<VisionResult> => ({
+  result: VisionResult,
+  selection?: { overlayId: string; sourceIdentity: string }
+): ToolResult<VisionResult & { selectedOverlay?: typeof selection }> => ({
   toolId: "vision_analyze",
   success: !result.error,
-  data: result,
+  data: selection ? { ...result, selectedOverlay: selection } : result,
   error: result.error
     ? {
         code: "execution_failed",

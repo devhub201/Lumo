@@ -296,6 +296,7 @@ export function createLumoCore({
       conversationId?: string;
       text: string;
       visionResult?: VisionResult;
+      visionSelection?: { overlayId: string; sourceIdentity: string };
     }): Promise<LumoTurnResult> {
       const startedAt = Date.now();
       const requestId = nanoid(12);
@@ -392,7 +393,12 @@ export function createLumoCore({
           personality,
           toolResults: input.visionResult
             ? [
-                buildVisionContext(visionResultToolResult(input.visionResult)),
+                buildVisionContext(
+                  visionResultToolResult(
+                    input.visionResult,
+                    input.visionSelection
+                  )
+                ),
               ].filter(
                 (result): result is NonNullable<typeof result> =>
                   result !== null

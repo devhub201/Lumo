@@ -26,6 +26,7 @@ export type VisionSource = {
   identity: string;
   mimeType: string;
   byteLength: number;
+  dimensions?: { width: number; height: number };
 };
 export type VisionRegion = {
   label: string;
@@ -101,6 +102,7 @@ export const visionResultSchema = z.object({
     identity: z.string(),
     mimeType: z.string(),
     byteLength: z.number(),
+    dimensions: z.object({ width: z.number(), height: z.number() }).optional(),
   }),
   description: z.string().nullable(),
   objects: z.array(

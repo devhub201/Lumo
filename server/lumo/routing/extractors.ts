@@ -286,6 +286,21 @@ export const extractVisionRequest = (text: string): Candidate | null => {
   };
 };
 
+export const extractBlueprintRequest = (text: string): Candidate | null => {
+  if (
+    !/\b(?:blueprint|architecture diagram|system diagram|flowchart|mind map)\b/i.test(
+      text
+    )
+  )
+    return null;
+  return {
+    toolId: "blueprint_create",
+    arguments: null,
+    confidence: "medium",
+    reason: "The request explicitly asks for an informational blueprint.",
+  };
+};
+
 export const extractFileRequest = (text: string): Candidate | null => {
   const fileId = fileIdIn(text);
   if (/\b(?:list|show)\b.*\b(?:files|documents)\b/i.test(text))
@@ -339,6 +354,7 @@ export const extractCandidates = (
     extractStatistics(text),
     extractDatetime(text),
     extractVisionRequest(text),
+    extractBlueprintRequest(text),
     extractFileRequest(text),
     extractWebSearch(text, context),
   ].filter((candidate): candidate is Candidate => Boolean(candidate));

@@ -121,6 +121,7 @@ export class VisionInputAdapter {
         identity,
         mimeType: image.mimeType,
         byteLength: image.bytes.length,
+        dimensions: { width: image.width, height: image.height },
       },
     };
   }
@@ -144,6 +145,7 @@ export class VisionInputAdapter {
         identity: fileId,
         mimeType: image.mimeType,
         byteLength: image.bytes.length,
+        dimensions: { width: image.width, height: image.height },
       },
     };
   }

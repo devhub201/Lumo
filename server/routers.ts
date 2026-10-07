@@ -36,6 +36,11 @@ import {
   visionResultSchema,
   visionAnalyzeInputSchema,
 } from "./lumo/vision/contracts";
+import {
+  blueprintCreateInputSchema,
+  blueprintUpdateInputSchema,
+} from "./lumo/blueprints/contracts";
+import { overlayModelFromVision } from "./lumo/overlays";
 
 const lumoStorage = new DatabaseLumoStorage();
 const lumoCore = createLumoCore({
@@ -94,6 +99,12 @@ const lumoRouter = router({
         conversationId: z.string().min(1).max(36).optional(),
         text: z.string().trim().min(1).max(4000),
         visionResult: visionResultSchema.optional(),
+        visionSelection: z
+          .object({
+            overlayId: z.string().min(1).max(80),
+            sourceIdentity: z.string().max(200),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -277,6 +288,10 @@ const lumoRouter = router({
       });
       return {
         result,
+        overlay:
+          result.success && result.data?.source.dimensions
+            ? overlayModelFromVision(result.data, result.data.source.dimensions)
+            : null,
         context: {
           metadata: context.metadata,
           messages: context.messages,
@@ -284,6 +299,30 @@ const lumoRouter = router({
         },
       };
     }),
+
+  runBlueprint: publicProcedure
+    .input(
+      z.object({
+        toolId: z.enum([
+          "blueprint_create",
+          "blueprint_update",
+          "blueprint_clear",
+        ]),
+        arguments: z.union([
+          blueprintCreateInputSchema,
+          blueprintUpdateInputSchema,
+          z.object({ blueprintId: z.string().min(1).max(80) }),
+        ]),
+      })
+    )
+    .mutation(async ({ input }) =>
+      lumoToolSystem.execute({
+        toolId: input.toolId,
+        arguments: input.arguments,
+        ownerKey: LUMO_OWNER_KEY,
+        requestId: nanoid(12),
+      })
+    ),
 
   getPersonality: publicProcedure.query(async () => {
     try {

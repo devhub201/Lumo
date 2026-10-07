@@ -28,6 +28,8 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { BlueprintCanvas } from "@/components/BlueprintCanvas";
+import { VisualOverlay } from "@/components/VisualOverlay";
 import { trpc } from "@/lib/trpc";
 import {
   CameraError,
@@ -35,8 +37,40 @@ import {
   type CameraSession,
 } from "@/lib/camera";
 import type { VisionResult } from "../../../server/lumo/vision/contracts";
+import type { Blueprint } from "../../../server/lumo/blueprints/contracts";
+import type { OverlayModel } from "../../../server/lumo/overlays/contracts";
 
 type MemoryKind = "preference" | "fact" | "project" | "summary" | "knowledge";
+
+const WORKBENCH_BLUEPRINT: Blueprint = {
+  id: "workbench-context-flow",
+  title: "LUMO context flow",
+  nodes: [
+    { id: "input", label: "User input", x: 20, y: 120, width: 140, height: 60 },
+    {
+      id: "context",
+      label: "Context Manager",
+      x: 260,
+      y: 120,
+      width: 160,
+      height: 60,
+    },
+    {
+      id: "response",
+      label: "LUMO response",
+      x: 520,
+      y: 120,
+      width: 140,
+      height: 60,
+    },
+  ],
+  edges: [
+    { id: "input-context", from: "input", to: "context" },
+    { id: "context-response", from: "context", to: "response" },
+  ],
+  groups: [],
+  trust: "untrusted_blueprint_data",
+};
 
 type Message = {
   id: string;
@@ -78,6 +112,11 @@ export default function Home() {
   const [visionSnapshot, setVisionSnapshot] = useState<VisionResult | null>(
     null
   );
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [overlayModel, setOverlayModel] = useState<OverlayModel | null>(null);
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(
+    null
+  );
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraSessionRef = useRef<CameraSession | null>(null);
 
@@ -109,6 +148,9 @@ export default function Home() {
     setPendingText(null);
     setLastDiagnostics(null);
     setVisionSnapshot(null);
+    setCapturedImage(null);
+    setOverlayModel(null);
+    setSelectedOverlayId(null);
     setCameraStatus(null);
   };
 
@@ -120,6 +162,9 @@ export default function Home() {
     setPendingText(null);
     setLastDiagnostics(null);
     setVisionSnapshot(null);
+    setCapturedImage(null);
+    setOverlayModel(null);
+    setSelectedOverlayId(null);
     setCameraStatus(null);
   };
 
@@ -186,6 +231,10 @@ export default function Home() {
         );
       }
       setVisionSnapshot(result.data);
+      setCapturedImage(frame.dataUrl);
+      setOverlayModel(
+        (response as { overlay?: OverlayModel | null }).overlay ?? null
+      );
       setCameraStatus(
         "Frame analyzed. Ask LUMO a question about what it sees."
       );
@@ -218,6 +267,13 @@ export default function Home() {
         conversationId: selectedId ?? undefined,
         text: cleanText,
         visionResult: visionSnapshot ?? undefined,
+        visionSelection:
+          selectedOverlayId && visionSnapshot
+            ? {
+                overlayId: selectedOverlayId,
+                sourceIdentity: visionSnapshot.source.identity,
+              }
+            : undefined,
       },
       {
         onSuccess: result => {
@@ -547,10 +603,28 @@ export default function Home() {
                 <button
                   type="button"
                   className="camera-clear"
-                  onClick={() => setVisionSnapshot(null)}
+                  onClick={() => {
+                    setVisionSnapshot(null);
+                    setCapturedImage(null);
+                    setOverlayModel(null);
+                  }}
                 >
                   Clear visual context
                 </button>
+                {capturedImage &&
+                  overlayModel &&
+                  overlayModel.overlays.length > 0 && (
+                    <VisualOverlay
+                      imageSrc={capturedImage}
+                      model={overlayModel}
+                      onSelect={overlay => {
+                        setSelectedOverlayId(overlay.id);
+                        setCameraStatus(
+                          `Selected visual target: ${overlay.label}`
+                        );
+                      }}
+                    />
+                  )}
               </div>
             )}
           </section>
@@ -732,6 +806,14 @@ export default function Home() {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section className="inspector-section blueprint-section">
+            <div className="section-label">
+              <span>blueprint workspace</span>
+              <span className="mono">safe view</span>
+            </div>
+            <BlueprintCanvas blueprint={WORKBENCH_BLUEPRINT} />
           </section>
         </aside>
       </div>

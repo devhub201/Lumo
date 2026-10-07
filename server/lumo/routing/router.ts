@@ -129,6 +129,8 @@ export class DeterministicToolRouter implements ToolRouter {
           "Please attach an image or provide a managed image file so I can analyze it.",
         camera_capture:
           "Use the camera capture control first, then send the captured frame for analysis.",
+        blueprint_create:
+          "Tell me what system, plan, or explanation you want represented as a blueprint.",
       };
       return clarification(
         input.requestId,

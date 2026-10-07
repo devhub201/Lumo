@@ -483,6 +483,94 @@ select:focus-visible {
   font-size: 11px;
   text-decoration: underline;
 }
+.visual-overlay {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  overflow: hidden;
+  background: #182020;
+}
+.visual-overlay-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.visual-overlay-box {
+  position: absolute;
+  border: 1px solid var(--teal);
+  background: rgba(47, 143, 135, 0.12);
+  color: var(--ink);
+  text-align: left;
+}
+.visual-overlay-box.selected {
+  border: 2px solid var(--warning);
+  background: rgba(161, 91, 33, 0.14);
+}
+.visual-overlay-box span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  padding: 2px 4px;
+  background: var(--paper);
+  font-size: 10px;
+}
+.blueprint-canvas {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--paper);
+}
+.blueprint-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.blueprint-toolbar button {
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: white;
+  color: var(--ink);
+  font-size: 10px;
+}
+.blueprint-canvas svg {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  background: #f7faf9;
+}
+.blueprint-edge {
+  stroke: #9aadaa;
+  stroke-width: 2;
+}
+.blueprint-edge.active {
+  stroke: var(--teal);
+  stroke-width: 3;
+}
+.blueprint-node rect {
+  fill: white;
+  stroke: #9aadaa;
+  stroke-width: 1.5;
+}
+.blueprint-node text {
+  fill: var(--ink);
+  font-size: 12px;
+}
+.blueprint-node.selected rect {
+  fill: var(--teal-soft);
+  stroke: var(--teal-dark);
+  stroke-width: 2.5;
+}
+.blueprint-node.connected rect {
+  stroke: var(--teal);
+}
+.blueprint-selection {
+  margin: 0;
+  padding: 5px 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
 
 .composer {
   max-width: 860px;
