@@ -28,6 +28,9 @@ export const ENV = {
   get lumoModel() {
     return process.env.LUMO_MODEL ?? "";
   },
+  get lumoVisionModel() {
+    return process.env.LUMO_VISION_MODEL ?? "";
+  },
   get lumoMaxTokens() {
     const value = Number(process.env.LUMO_MAX_TOKENS ?? "1200");
     return Number.isFinite(value) && value > 0

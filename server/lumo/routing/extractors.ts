@@ -259,6 +259,33 @@ export const extractWebSearch = (
 const fileIdIn = (text: string) =>
   text.match(/\bfile_[a-zA-Z0-9_-]{10,40}\b/)?.[0];
 
+export const extractVisionRequest = (text: string): Candidate | null => {
+  const camera = /\b(?:camera|webcam)\b/i.test(text);
+  const visual =
+    /\b(?:image|photo|picture|diagram|visual|ocr|image mein|photo mein)\b/i.test(
+      text
+    );
+  if (!camera && !visual) return null;
+  if (camera)
+    return {
+      toolId: "camera_capture",
+      arguments: null,
+      confidence: "high",
+      reason: "Camera analysis requires an explicit user-captured frame.",
+    };
+  const fileId = fileIdIn(text);
+  return {
+    toolId: "vision_analyze",
+    arguments: fileId
+      ? { source: { kind: "managed_file", fileId }, mode: "understand" }
+      : null,
+    confidence: fileId ? "high" : "medium",
+    reason: fileId
+      ? "The request names a managed image identity."
+      : "The request asks for visual analysis but needs an image input.",
+  };
+};
+
 export const extractFileRequest = (text: string): Candidate | null => {
   const fileId = fileIdIn(text);
   if (/\b(?:list|show)\b.*\b(?:files|documents)\b/i.test(text))
@@ -311,6 +338,7 @@ export const extractCandidates = (
     extractUnitConversion(text, context),
     extractStatistics(text),
     extractDatetime(text),
+    extractVisionRequest(text),
     extractFileRequest(text),
     extractWebSearch(text, context),
   ].filter((candidate): candidate is Candidate => Boolean(candidate));
@@ -318,7 +346,7 @@ export const extractCandidates = (
 };
 
 export const hasUnsupportedCapability = (text: string) =>
-  /\b(?:send an? email|open (?:the )?camera|take a photo|play spotify|run (?:a )?command|terminal|control my computer)\b/i.test(
+  /\b(?:send an? email|play spotify|run (?:a )?command|terminal|control my computer)\b/i.test(
     text
   );
 

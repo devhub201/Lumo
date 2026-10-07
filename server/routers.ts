@@ -30,6 +30,11 @@ import { lumoToolRouter, lumoToolSystem } from "./lumo/tools/system";
 import { createContextManager } from "./lumo/context/manager";
 import { buildDocumentContext } from "./lumo/files/context";
 import { FILE_TOOL_IDS } from "./lumo/files/contracts";
+import { buildVisionContext } from "./lumo/vision/context";
+import {
+  cameraCaptureInputSchema,
+  visionAnalyzeInputSchema,
+} from "./lumo/vision/contracts";
 
 const lumoStorage = new DatabaseLumoStorage();
 const lumoCore = createLumoCore({
@@ -239,6 +244,41 @@ const lumoRouter = router({
           metadata: context.metadata,
           messages: context.messages,
           source: "managed_document",
+        },
+      };
+    }),
+
+  runVision: publicProcedure
+    .input(
+      z.object({
+        toolId: z.enum(["vision_analyze", "camera_capture"]),
+        arguments: z.union([
+          visionAnalyzeInputSchema,
+          cameraCaptureInputSchema,
+        ]),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const requestId = nanoid(12);
+      const result = (await lumoToolSystem.execute({
+        toolId: input.toolId,
+        arguments: input.arguments,
+        ownerKey: LUMO_OWNER_KEY,
+        requestId,
+      })) as ToolResult<any>;
+      const visionContext = buildVisionContext(result);
+      const context = createContextManager(lumoLogger).build({
+        requestId,
+        currentRequest: `${input.toolId} visual request`,
+        personality: DEFAULT_PERSONALITY,
+        toolResults: visionContext ? [visionContext] : [],
+      });
+      return {
+        result,
+        context: {
+          metadata: context.metadata,
+          messages: context.messages,
+          source: "vision_observation",
         },
       };
     }),

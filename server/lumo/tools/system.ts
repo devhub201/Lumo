@@ -8,16 +8,21 @@ import { createToolRouter } from "../routing";
 import { utilityTools } from "./utility";
 import { createWebSearchTool } from "./web-search";
 import { fileTools } from "../files";
+import { visionTools } from "../vision";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
 export const lumoToolPermissions = new AllowlistToolPermissions([
   "network",
   "files",
+  "vision",
+  "camera",
 ]);
 lumoToolRegistry.register(createWebSearchTool());
 for (const tool of utilityTools)
   lumoToolRegistry.register(tool as ToolDefinition);
 for (const tool of fileTools) lumoToolRegistry.register(tool as ToolDefinition);
+for (const tool of visionTools)
+  lumoToolRegistry.register(tool as ToolDefinition);
 export const lumoToolExecutor = new ToolExecutor(
   lumoToolRegistry,
   lumoToolPermissions,

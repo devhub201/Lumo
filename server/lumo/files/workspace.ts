@@ -18,6 +18,11 @@ const MIME: Record<SupportedFileType, string> = {
   csv: "text/csv",
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
 };
 const extensionOf = (name: string): SupportedFileType => {
   const extension = path
@@ -78,6 +83,8 @@ const resolveRecord = async (ownerKey: string, fileId: string) => {
 };
 const dataPath = (ownerKey: string, file: FileMetadata) =>
   path.join(workspacePath(ownerKey), `${file.id}.${file.type}`);
+const isImage = (type: SupportedFileType) =>
+  ["png", "jpg", "jpeg", "webp", "gif"].includes(type);
 
 const extractDocx = (buffer: Buffer) => {
   const xml = execFileSync("unzip", ["-p", "/dev/stdin", "word/document.xml"], {
@@ -124,6 +131,10 @@ export class ManagedFileWorkspace {
   }
   async read(ownerKey: string, fileId: string, maxChars = MAX_READ_CHARS) {
     const file = await resolveRecord(ownerKey, fileId);
+    if (isImage(file.type))
+      throw new Error(
+        "Image files must be passed through the vision input adapter."
+      );
     const content = decodeContent(
       file,
       await readFile(dataPath(ownerKey, file))
@@ -134,6 +145,15 @@ export class ManagedFileWorkspace {
       truncated: content.length > maxChars,
       contentTrust: "untrusted_document_data" as const,
     };
+  }
+  async readBinary(ownerKey: string, fileId: string) {
+    const file = await resolveRecord(ownerKey, fileId);
+    if (!isImage(file.type))
+      throw new Error("The managed file is not an image.");
+    const bytes = await readFile(dataPath(ownerKey, file));
+    if (bytes.length > MAX_FILE_BYTES)
+      throw new Error("Managed image exceeds the 1 MB workspace limit.");
+    return { file, bytes };
   }
   async search(
     ownerKey: string,
@@ -190,6 +210,10 @@ export class ManagedFileWorkspace {
     if (!name) throw new Error("A file name is required when creating a file.");
     fileNameSchema.parse(name);
     const type = extensionOf(name);
+    if (isImage(type))
+      throw new Error(
+        "Binary image content must use the controlled image upload adapter."
+      );
     if (existing && existing.type !== type)
       throw new Error("File type cannot change during an update.");
     const file: FileMetadata = existing
@@ -216,6 +240,50 @@ export class ManagedFileWorkspace {
       ? files.map(item => (item.id === file.id ? file : item))
       : [file, ...files];
     await writeManifest(ownerKey, files);
+    return file;
+  }
+  async saveBinary(
+    ownerKey: string,
+    input: { name: string; bytes: Buffer; overwrite: boolean }
+  ) {
+    if (input.bytes.length > MAX_FILE_BYTES)
+      throw new Error("File content exceeds the 1 MB limit.");
+    fileNameSchema.parse(input.name);
+    const type = extensionOf(input.name);
+    if (!isImage(type))
+      throw new Error("Binary upload is limited to image files.");
+    const files = await readManifest(ownerKey);
+    const existing = files.find(file => file.name === input.name);
+    if (existing && !input.overwrite)
+      throw new Error(
+        "A file with this name already exists; set overwrite to true."
+      );
+    const file: FileMetadata = existing
+      ? {
+          ...existing,
+          sizeBytes: input.bytes.length,
+          contentHash: digest(input.bytes),
+          updatedAt: now(),
+        }
+      : {
+          id: `file_${randomBytes(12).toString("base64url")}`,
+          ownerKey,
+          name: input.name,
+          type,
+          mimeType: MIME[type],
+          sizeBytes: input.bytes.length,
+          contentHash: digest(input.bytes),
+          createdAt: now(),
+          updatedAt: now(),
+        };
+    await mkdir(workspacePath(ownerKey), { recursive: true });
+    await writeFile(dataPath(ownerKey, file), input.bytes);
+    await writeManifest(
+      ownerKey,
+      existing
+        ? files.map(item => (item.id === file.id ? file : item))
+        : [file, ...files]
+    );
     return file;
   }
   async create(

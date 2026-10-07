@@ -125,6 +125,10 @@ export class DeterministicToolRouter implements ToolRouter {
         datetime_utility:
           "Which dates, timestamp, or duration should I use? Include an explicit timezone for dates.",
         web_search: "What topic should I search for?",
+        vision_analyze:
+          "Please attach an image or provide a managed image file so I can analyze it.",
+        camera_capture:
+          "Use the camera capture control first, then send the captured frame for analysis.",
       };
       return clarification(
         input.requestId,

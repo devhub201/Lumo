@@ -7,8 +7,15 @@ export const SUPPORTED_FILE_TYPES = [
   "csv",
   "pdf",
   "docx",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
 ] as const;
 export type SupportedFileType = (typeof SUPPORTED_FILE_TYPES)[number];
+export const IMAGE_FILE_TYPES = ["png", "jpg", "jpeg", "webp", "gif"] as const;
+export type ImageFileType = (typeof IMAGE_FILE_TYPES)[number];
 
 export const MAX_FILE_BYTES = 1_000_000;
 export const MAX_READ_CHARS = 12_000;
