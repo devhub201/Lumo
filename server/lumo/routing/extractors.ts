@@ -256,6 +256,52 @@ export const extractWebSearch = (
   };
 };
 
+const fileIdIn = (text: string) =>
+  text.match(/\bfile_[a-zA-Z0-9_-]{10,40}\b/)?.[0];
+
+export const extractFileRequest = (text: string): Candidate | null => {
+  const fileId = fileIdIn(text);
+  if (/\b(?:list|show)\b.*\b(?:files|documents)\b/i.test(text))
+    return {
+      toolId: "file_list",
+      arguments: { limit: 50 },
+      confidence: "high",
+      reason: "The request asks for the owner-scoped managed file list.",
+    };
+  if (/\b(?:search|find)\b.*\b(?:files|documents)\b/i.test(text)) {
+    const query = text
+      .replace(
+        /^.*?\b(?:files|documents)\b\s*(?:for|about|containing)?\s*/i,
+        ""
+      )
+      .replace(/[?!.,]+$/g, "")
+      .trim();
+    return {
+      toolId: "file_search",
+      arguments: query ? { query, limit: 10 } : null,
+      confidence: "medium",
+      reason: "The request asks for bounded search across managed documents.",
+    };
+  }
+  if (
+    fileId &&
+    /\b(?:read|open|extract|summari[sz]e|summarise)\b/i.test(text)
+  ) {
+    const toolId = /summari[sz]e|summarise/i.test(text)
+      ? "document_summarize"
+      : /extract/i.test(text)
+        ? "document_extract"
+        : "file_read";
+    return {
+      toolId,
+      arguments: { fileId },
+      confidence: "high",
+      reason: "The request names a stable managed file identity.",
+    };
+  }
+  return null;
+};
+
 export const extractCandidates = (
   text: string,
   context?: RoutingContext
@@ -265,13 +311,14 @@ export const extractCandidates = (
     extractUnitConversion(text, context),
     extractStatistics(text),
     extractDatetime(text),
+    extractFileRequest(text),
     extractWebSearch(text, context),
   ].filter((candidate): candidate is Candidate => Boolean(candidate));
   return candidates;
 };
 
 export const hasUnsupportedCapability = (text: string) =>
-  /\b(?:send an? email|open (?:the )?camera|take a photo|play spotify|access files?|read (?:this )?document|upload (?:a )?file|run (?:a )?command|terminal|control my computer)\b/i.test(
+  /\b(?:send an? email|open (?:the )?camera|take a photo|play spotify|run (?:a )?command|terminal|control my computer)\b/i.test(
     text
   );
 

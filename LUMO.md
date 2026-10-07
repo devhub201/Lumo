@@ -9,7 +9,7 @@ This repository is the first functional foundation for Peter's personal AI compa
 - Structured conversations and ordered messages in managed MySQL.
 - Structured persistent memories with bounded lexical retrieval.
 - A minimal workbench UI for conversations, diagnostics, memory creation, loading states, retries, and context inspection.
-- Future capability contracts for tools, files, web, vision, voice, and blueprints; those capabilities are not implemented yet.
+- Registered tools include deterministic utilities, bounded web search, and the Phase 11 managed Files / Document Intelligence subsystem.
 - Safe structured logs and user-safe error mapping.
 
 ## Local development
@@ -28,6 +28,7 @@ Optional LUMO settings:
 - `LUMO_MODEL` — explicit platform model ID; blank uses the platform default.
 - `LUMO_MAX_TOKENS` — response budget, clamped to 4,000.
 - `LUMO_TIMEOUT_MS` — request timeout, clamped between 5 and 120 seconds.
+- `LUMO_FILES_ROOT` — optional server-only root for managed owner-scoped file workspaces.
 
 ## Core request path
 
@@ -39,5 +40,12 @@ Optional LUMO settings:
 - `lumo_messages`: ordered user/assistant turns and safe diagnostic metadata.
 - `lumo_memories`: structured preference/fact/project/summary/knowledge records.
 - `lumo_settings`: reserved owner-scoped settings boundary for future configuration.
+- Managed files: an owner-hashed workspace with a manifest and stable generated file IDs; no caller-supplied filesystem paths.
 
 The current testing UI uses the fixed owner key `peter`; this is deliberate for a one-user foundation and is not a substitute for a future authentication/permission layer.
+
+## Phase 11 managed files and document intelligence
+
+Phase 11 supports TXT, Markdown, JSON, CSV, PDF, and DOCX files. Names and extensions are validated, content is capped at 1 MB, and reads/searches/summaries are bounded. PDF extraction uses `pdftotext` when available; DOCX extraction reads only `word/document.xml` through `unzip`.
+
+The registered tools are `file_list`, `file_read`, `file_search`, `document_summarize`, `document_extract`, `document_create`, `file_save`, and `file_metadata`. They require the `files` permission and use the existing Tool Registry, Executor, permission checks, normalized fault handling, and deterministic router. Document results pass through the existing Context Manager with an explicit untrusted-document-data wrapper. Document text is never treated as system instructions and is not written to long-term memory automatically.

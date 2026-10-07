@@ -27,6 +27,9 @@ import {
 } from "./lumo/contracts";
 import { DatabaseLumoStorage } from "./lumo/storage";
 import { lumoToolRouter, lumoToolSystem } from "./lumo/tools/system";
+import { createContextManager } from "./lumo/context/manager";
+import { buildDocumentContext } from "./lumo/files/context";
+import { FILE_TOOL_IDS } from "./lumo/files/contracts";
 
 const lumoStorage = new DatabaseLumoStorage();
 const lumoCore = createLumoCore({
@@ -204,6 +207,38 @@ const lumoRouter = router({
         context: {
           metadata: context.metadata,
           source: "utility_result",
+        },
+      };
+    }),
+
+  runFile: publicProcedure
+    .input(
+      z.object({
+        toolId: z.enum(FILE_TOOL_IDS),
+        arguments: z.unknown(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const requestId = nanoid(12);
+      const result = (await lumoToolSystem.execute({
+        toolId: input.toolId,
+        arguments: input.arguments,
+        ownerKey: LUMO_OWNER_KEY,
+        requestId,
+      })) as ToolResult<any>;
+      const documentContext = buildDocumentContext(result);
+      const context = createContextManager(lumoLogger).build({
+        requestId,
+        currentRequest: `${input.toolId} document request`,
+        personality: DEFAULT_PERSONALITY,
+        toolResults: documentContext ? [documentContext] : [],
+      });
+      return {
+        result,
+        context: {
+          metadata: context.metadata,
+          messages: context.messages,
+          source: "managed_document",
         },
       };
     }),

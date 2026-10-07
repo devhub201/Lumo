@@ -7,12 +7,17 @@ import type { ToolDefinition } from "./contracts";
 import { createToolRouter } from "../routing";
 import { utilityTools } from "./utility";
 import { createWebSearchTool } from "./web-search";
+import { fileTools } from "../files";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
-export const lumoToolPermissions = new AllowlistToolPermissions(["network"]);
+export const lumoToolPermissions = new AllowlistToolPermissions([
+  "network",
+  "files",
+]);
 lumoToolRegistry.register(createWebSearchTool());
 for (const tool of utilityTools)
   lumoToolRegistry.register(tool as ToolDefinition);
+for (const tool of fileTools) lumoToolRegistry.register(tool as ToolDefinition);
 export const lumoToolExecutor = new ToolExecutor(
   lumoToolRegistry,
   lumoToolPermissions,
