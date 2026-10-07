@@ -10,6 +10,7 @@ import { createWebSearchTool } from "./web-search";
 import { fileTools } from "../files";
 import { visionTools } from "../vision";
 import { blueprintTools } from "../blueprints";
+import { teachingTools } from "../teaching";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
 export const lumoToolPermissions = new AllowlistToolPermissions([
@@ -18,6 +19,7 @@ export const lumoToolPermissions = new AllowlistToolPermissions([
   "vision",
   "camera",
   "blueprint",
+  "teaching",
 ]);
 lumoToolRegistry.register(createWebSearchTool());
 for (const tool of utilityTools)
@@ -26,6 +28,8 @@ for (const tool of fileTools) lumoToolRegistry.register(tool as ToolDefinition);
 for (const tool of visionTools)
   lumoToolRegistry.register(tool as ToolDefinition);
 for (const tool of blueprintTools)
+  lumoToolRegistry.register(tool as ToolDefinition);
+for (const tool of teachingTools)
   lumoToolRegistry.register(tool as ToolDefinition);
 export const lumoToolExecutor = new ToolExecutor(
   lumoToolRegistry,

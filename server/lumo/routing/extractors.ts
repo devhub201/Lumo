@@ -301,6 +301,21 @@ export const extractBlueprintRequest = (text: string): Candidate | null => {
   };
 };
 
+export const extractTeachingRequest = (text: string): Candidate | null => {
+  if (
+    !/^\s*(?:lumo[,:]?\s*)?(?:teach me|teach me how|teaching mode|sikhao)\b/i.test(
+      text
+    )
+  )
+    return null;
+  return {
+    toolId: "teaching_create",
+    arguments: null,
+    confidence: "high",
+    reason: "Teaching mode requires an explicit user request.",
+  };
+};
+
 export const extractFileRequest = (text: string): Candidate | null => {
   const fileId = fileIdIn(text);
   if (/\b(?:list|show)\b.*\b(?:files|documents)\b/i.test(text))
@@ -355,6 +370,7 @@ export const extractCandidates = (
     extractDatetime(text),
     extractVisionRequest(text),
     extractBlueprintRequest(text),
+    extractTeachingRequest(text),
     extractFileRequest(text),
     extractWebSearch(text, context),
   ].filter((candidate): candidate is Candidate => Boolean(candidate));

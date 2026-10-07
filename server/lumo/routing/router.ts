@@ -131,6 +131,8 @@ export class DeterministicToolRouter implements ToolRouter {
           "Use the camera capture control first, then send the captured frame for analysis.",
         blueprint_create:
           "Tell me what system, plan, or explanation you want represented as a blueprint.",
+        teaching_create:
+          "Select or capture a visual context and tell me what you want LUMO to teach step by step.",
       };
       return clarification(
         input.requestId,

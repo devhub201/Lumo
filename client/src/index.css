@@ -571,6 +571,63 @@ select:focus-visible {
   color: var(--muted);
   font-size: 10px;
 }
+.teaching-overlay {
+  margin-top: 10px;
+  border: 1px solid #d9a3a0;
+  background: #fffafa;
+}
+.teaching-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px;
+  border-bottom: 1px solid #edcfcc;
+}
+.teaching-toolbar button {
+  border: 1px solid #d9a3a0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: white;
+  color: #8e302c;
+  font-size: 10px;
+}
+.teaching-stage {
+  position: relative;
+  aspect-ratio: 16/9;
+  overflow: hidden;
+  background: #241c1c;
+}
+.teaching-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.teaching-annotation {
+  position: absolute;
+  border: 2px solid #c63732;
+  background: rgba(198, 55, 50, 0.14);
+  color: #8e302c;
+}
+.teaching-annotation.selected {
+  border-width: 3px;
+  background: rgba(198, 55, 50, 0.25);
+}
+.teaching-annotation span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  white-space: nowrap;
+  background: #fff4f3;
+  padding: 2px 4px;
+  font-size: 10px;
+}
+.teaching-explanation {
+  margin: 0;
+  padding: 7px;
+  color: #6e2926;
+  font-size: 11px;
+  line-height: 1.4;
+}
 
 .composer {
   max-width: 860px;

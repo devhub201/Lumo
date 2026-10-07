@@ -41,6 +41,10 @@ import {
   blueprintUpdateInputSchema,
 } from "./lumo/blueprints/contracts";
 import { overlayModelFromVision } from "./lumo/overlays";
+import {
+  teachingCreateInputSchema,
+  teachingProgressInputSchema,
+} from "./lumo/teaching/contracts";
 
 const lumoStorage = new DatabaseLumoStorage();
 const lumoCore = createLumoCore({
@@ -312,6 +316,25 @@ const lumoRouter = router({
           blueprintCreateInputSchema,
           blueprintUpdateInputSchema,
           z.object({ blueprintId: z.string().min(1).max(80) }),
+        ]),
+      })
+    )
+    .mutation(async ({ input }) =>
+      lumoToolSystem.execute({
+        toolId: input.toolId,
+        arguments: input.arguments,
+        ownerKey: LUMO_OWNER_KEY,
+        requestId: nanoid(12),
+      })
+    ),
+
+  runTeaching: publicProcedure
+    .input(
+      z.object({
+        toolId: z.enum(["teaching_create", "teaching_progress"]),
+        arguments: z.union([
+          teachingCreateInputSchema,
+          teachingProgressInputSchema,
         ]),
       })
     )

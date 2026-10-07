@@ -10,6 +10,7 @@ import {
   Clock3,
   Database,
   Loader2,
+  Mic,
   Plus,
   RefreshCw,
   Save,
@@ -30,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { BlueprintCanvas } from "@/components/BlueprintCanvas";
 import { VisualOverlay } from "@/components/VisualOverlay";
+import { TeachingOverlay } from "@/components/TeachingOverlay";
 import { trpc } from "@/lib/trpc";
 import {
   CameraError,
@@ -39,6 +41,10 @@ import {
 import type { VisionResult } from "../../../server/lumo/vision/contracts";
 import type { Blueprint } from "../../../server/lumo/blueprints/contracts";
 import type { OverlayModel } from "../../../server/lumo/overlays/contracts";
+import { detectModeCommand } from "../../../server/lumo/interaction/commands";
+import type { InteractionMode } from "../../../server/lumo/interaction/contracts";
+import type { TeachingSession } from "../../../server/lumo/teaching/contracts";
+import { createSpeechOutput, createVoiceInput, VoiceError } from "@/lib/voice";
 
 type MemoryKind = "preference" | "fact" | "project" | "summary" | "knowledge";
 
@@ -114,7 +120,18 @@ export default function Home() {
   );
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [overlayModel, setOverlayModel] = useState<OverlayModel | null>(null);
+  const [teachingSession, setTeachingSession] =
+    useState<TeachingSession | null>(null);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(
+    null
+  );
+  const [interactionMode, setInteractionMode] =
+    useState<InteractionMode>("text");
+  const [voiceStatus, setVoiceStatus] = useState("text mode");
+  const voiceInputRef = useRef<ReturnType<typeof createVoiceInput> | null>(
+    null
+  );
+  const speechOutputRef = useRef<ReturnType<typeof createSpeechOutput> | null>(
     null
   );
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
@@ -131,6 +148,15 @@ export default function Home() {
   const sendMutation = trpc.lumo.send.useMutation();
   const memoryMutation = trpc.lumo.createMemory.useMutation();
   const runVisionMutation = trpc.lumo.runVision.useMutation();
+
+  useEffect(() => {
+    voiceInputRef.current = createVoiceInput();
+    speechOutputRef.current = createSpeechOutput();
+    return () => {
+      voiceInputRef.current?.cancel();
+      speechOutputRef.current?.stop();
+    };
+  }, []);
 
   const messages = (conversationQuery.data?.messages ?? []) as Message[];
   const activeConversation = conversationQuery.data?.conversation;
@@ -150,6 +176,7 @@ export default function Home() {
     setVisionSnapshot(null);
     setCapturedImage(null);
     setOverlayModel(null);
+    setTeachingSession(null);
     setSelectedOverlayId(null);
     setCameraStatus(null);
   };
@@ -164,6 +191,7 @@ export default function Home() {
     setVisionSnapshot(null);
     setCapturedImage(null);
     setOverlayModel(null);
+    setTeachingSession(null);
     setSelectedOverlayId(null);
     setCameraStatus(null);
   };
@@ -232,9 +260,28 @@ export default function Home() {
       }
       setVisionSnapshot(result.data);
       setCapturedImage(frame.dataUrl);
-      setOverlayModel(
-        (response as { overlay?: OverlayModel | null }).overlay ?? null
-      );
+      const nextOverlay =
+        (response as { overlay?: OverlayModel | null }).overlay ?? null;
+      setOverlayModel(nextOverlay);
+      if (nextOverlay) {
+        setTeachingSession({
+          id: `teaching:${result.data.requestId}`,
+          sourceIdentity: result.data.source.identity,
+          annotations: nextOverlay.overlays.map((overlay, index) => ({
+            id: `annotation:${overlay.id}`,
+            type: "red_box" as const,
+            rect: overlay.rect,
+            targetId: overlay.id,
+            title: overlay.label,
+            explanation: `This visual target was identified with ${Math.round((overlay.confidence ?? 0) * 100)}% confidence.`,
+            sequence: index + 1,
+            visible: true,
+          })),
+          currentSequence: 1,
+          active: true,
+          trust: "untrusted_teaching_data",
+        });
+      }
       setCameraStatus(
         "Frame analyzed. Ask LUMO a question about what it sees."
       );
@@ -247,9 +294,45 @@ export default function Home() {
     }
   };
 
+  const startVoiceListening = async () => {
+    setInteractionMode("voice");
+    setVoiceStatus("requesting microphone permission");
+    try {
+      await voiceInputRef.current?.startListening(
+        text => {
+          setVoiceStatus("transcription received");
+          submitText(text);
+        },
+        error => {
+          setVoiceStatus(`${error.message} Text mode remains available.`);
+          setInteractionMode("text");
+        }
+      );
+      setVoiceStatus("listening");
+    } catch (error) {
+      setVoiceStatus(
+        error instanceof VoiceError
+          ? error.message
+          : "Microphone unavailable; use text."
+      );
+      setInteractionMode("text");
+    }
+  };
+
   const submitText = (text: string) => {
     const cleanText = text.trim();
     if (!cleanText || sendMutation.isPending) return;
+    const modeCommand = detectModeCommand(cleanText);
+    if (modeCommand) {
+      if (modeCommand.mode === "text") {
+        voiceInputRef.current?.cancel();
+        speechOutputRef.current?.stop();
+      }
+      setInteractionMode(modeCommand.mode);
+      setVoiceStatus(`${modeCommand.mode} mode active`);
+      if (modeCommand.mode === "voice") void startVoiceListening();
+      return;
+    }
     if (
       /^(?:lumo[,:]?\s*)?(?:camera kholo|open camera|start camera)$/i.test(
         cleanText
@@ -281,6 +364,16 @@ export default function Home() {
           setPendingText(null);
           setDraft("");
           setLastDiagnostics(result.diagnostics);
+          if (interactionMode === "voice") {
+            setVoiceStatus("speaking");
+            void speechOutputRef.current
+              ?.speak(result.assistantMessage.content, () =>
+                setVoiceStatus("listening")
+              )
+              .catch(() =>
+                setVoiceStatus("speech failed; text response available")
+              );
+          }
           void Promise.all([
             utils.lumo.listConversations.invalidate(),
             utils.lumo.getConversation.invalidate({
@@ -555,6 +648,15 @@ export default function Home() {
               aria-label="Live camera preview"
             />
             <div className="camera-controls">
+              <Button
+                type="button"
+                variant={interactionMode === "voice" ? "default" : "outline"}
+                size="sm"
+                onClick={() => void startVoiceListening()}
+              >
+                <Mic size={14} />{" "}
+                {interactionMode === "voice" ? "Listening" : "Voice mode"}
+              </Button>
               {!cameraOpen ? (
                 <Button
                   type="button"
@@ -592,6 +694,9 @@ export default function Home() {
                 </>
               )}
             </div>
+            <p className="camera-status">
+              mode: {interactionMode} · {voiceStatus}
+            </p>
             {cameraStatus && <p className="camera-status">{cameraStatus}</p>}
             {visionSnapshot && (
               <div className="vision-snapshot">
@@ -607,6 +712,7 @@ export default function Home() {
                     setVisionSnapshot(null);
                     setCapturedImage(null);
                     setOverlayModel(null);
+                    setTeachingSession(null);
                   }}
                 >
                   Clear visual context
@@ -623,6 +729,15 @@ export default function Home() {
                           `Selected visual target: ${overlay.label}`
                         );
                       }}
+                    />
+                  )}
+                {interactionMode === "teaching" &&
+                  capturedImage &&
+                  teachingSession && (
+                    <TeachingOverlay
+                      imageSrc={capturedImage}
+                      session={teachingSession}
+                      onChange={setTeachingSession}
                     />
                   )}
               </div>
