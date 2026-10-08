@@ -60,6 +60,12 @@ describe("Phase 10 direct response and utility routing", () => {
         arguments: { operation: "open", url: "https://example.com" },
       })
     );
+    expect(extractCandidates("Show my GitHub repositories")).toContainEqual(
+      expect.objectContaining({ toolId: "github_integration" })
+    );
+    expect(extractCandidates("Search my Gmail for invoices")).toContainEqual(
+      expect.objectContaining({ toolId: "gmail_integration" })
+    );
   });
   it("keeps greetings, explanations, and sufficient direct answers out of tools", async () => {
     const { router } = makeRouter();

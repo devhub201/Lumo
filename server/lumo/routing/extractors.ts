@@ -391,6 +391,32 @@ export const extractBrowserRequest = (text: string): Candidate | null => {
   };
 };
 
+export const extractGithubRequest = (text: string): Candidate | null => {
+  if (!/\b(?:github|repository|repo|pull request|branch|commit)\b/i.test(text))
+    return null;
+  if (!/\b(?:my|from|on|to|create|show|open|read|inspect|list)\b/i.test(text))
+    return null;
+  return {
+    toolId: "github_integration",
+    arguments: null,
+    confidence: "medium",
+    reason:
+      "The request explicitly names a GitHub account or repository operation.",
+  };
+};
+
+export const extractGmailRequest = (text: string): Candidate | null => {
+  if (!/\b(?:gmail|email|mail|inbox|message|draft)\b/i.test(text)) return null;
+  if (!/\b(?:my|search|show|open|read|create|send|email)\b/i.test(text))
+    return null;
+  return {
+    toolId: "gmail_integration",
+    arguments: null,
+    confidence: "medium",
+    reason: "The request explicitly names an account email operation.",
+  };
+};
+
 export const extractCandidates = (
   text: string,
   context?: RoutingContext
@@ -406,6 +432,8 @@ export const extractCandidates = (
     extractFileRequest(text),
     extractCodingRequest(text),
     extractBrowserRequest(text),
+    extractGithubRequest(text),
+    extractGmailRequest(text),
     extractWebSearch(text, context),
   ].filter((candidate): candidate is Candidate => Boolean(candidate));
   return candidates;

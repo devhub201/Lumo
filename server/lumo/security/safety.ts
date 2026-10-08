@@ -3,6 +3,8 @@ const SECRET_PATTERNS = [
   /AIza[0-9A-Za-z_-]{20,}/g,
   /DATABASE_URL\s*=\s*[^\s]+/gi,
   /Authorization:\s*Bearer\s+[^\s]+/gi,
+  /(?:ghp_|github_pat_|gho_)[A-Za-z0-9_]{20,}/g,
+  /ya29\.[A-Za-z0-9._-]{20,}/g,
 ];
 export const sanitizePublicText = (value: string) =>
   SECRET_PATTERNS.reduce(

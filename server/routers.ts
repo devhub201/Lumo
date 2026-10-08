@@ -34,6 +34,8 @@ import {
   lumoBrowserWorkspace,
   lumoCodeWorkspace,
   lumoCodingTasks,
+  lumoGithub,
+  lumoGmail,
 } from "./lumo/tools/system";
 import { agentPlanSchema } from "./lumo/workflows";
 import { runtimeCommandSchema } from "./lumo/runtime";
@@ -192,6 +194,101 @@ const lumoRouter = router({
     operations: ["open", "navigate", "snapshot", "extract", "links"],
     contentTrust: "untrusted_web_data",
   })),
+
+  githubCatalog: publicProcedure.query(() => ({
+    supported: true,
+    providerMode: "mock_disconnected_until_explicit_provider_connection",
+    operations: [
+      "account",
+      "list_repositories",
+      "inspect_repository",
+      "list_branches",
+      "read_file",
+      "create_branch",
+      "update_file",
+      "create_commit",
+      "pull_requests",
+      "create_pull_request",
+      "issues",
+      "create_issue",
+    ],
+    contentTrust: "untrusted_external_data",
+  })),
+  gmailCatalog: publicProcedure.query(() => ({
+    supported: true,
+    providerMode: "mock_disconnected_until_explicit_provider_connection",
+    operations: [
+      "account",
+      "list_messages",
+      "search_messages",
+      "inspect_message",
+      "inspect_thread",
+      "list_labels",
+      "create_draft",
+      "send",
+    ],
+    contentTrust: "untrusted_external_data",
+    sending: "explicit_sensitive_authorization_required",
+  })),
+  githubAccount: publicProcedure.query(() =>
+    lumoGithub.account(LUMO_OWNER_KEY)
+  ),
+  githubRepositories: publicProcedure.query(() =>
+    lumoGithub.listRepositories(LUMO_OWNER_KEY)
+  ),
+  githubReadFile: publicProcedure
+    .input(
+      z.object({
+        owner: z.string().min(1).max(100),
+        name: z.string().min(1).max(100),
+        branch: z.string().min(1).max(100),
+        path: relativePathSchema,
+      })
+    )
+    .query(({ input }) => lumoGithub.readFile(LUMO_OWNER_KEY, input)),
+  gmailAccount: publicProcedure.query(() => lumoGmail.account(LUMO_OWNER_KEY)),
+  gmailSearch: publicProcedure
+    .input(
+      z.object({
+        query: z.string().trim().min(1).max(300),
+        limit: z.number().int().min(1).max(50).default(20),
+      })
+    )
+    .query(({ input }) =>
+      lumoGmail.search(LUMO_OWNER_KEY, input.query, input.limit)
+    ),
+  gmailMessage: publicProcedure
+    .input(z.object({ id: z.string().min(1).max(100) }))
+    .query(({ input }) => lumoGmail.message(LUMO_OWNER_KEY, input.id)),
+  gmailCreateDraft: publicProcedure
+    .input(
+      z.object({
+        to: z.array(z.string().email()).min(1).max(20),
+        subject: z.string().max(300),
+        body: z.string().max(100_000),
+      })
+    )
+    .mutation(({ input }) => lumoGmail.draft(LUMO_OWNER_KEY, input)),
+  gmailSend: publicProcedure
+    .input(
+      z.object({
+        to: z.array(z.string().email()).min(1).max(20),
+        subject: z.string().max(300),
+        body: z.string().max(100_000),
+        idempotencyKey: z.string().min(1).max(120),
+        authorization: z
+          .object({
+            authorized: z.boolean(),
+            action: z.string().max(80),
+            reason: z.string().max(300),
+            issuedAt: z.number(),
+          })
+          .optional(),
+      })
+    )
+    .mutation(({ input }) =>
+      lumoGmail.send(LUMO_OWNER_KEY, input, input.authorization)
+    ),
 
   codeCreateProject: publicProcedure
     .input(z.object({ name: projectNameSchema }))

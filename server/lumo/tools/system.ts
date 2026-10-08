@@ -17,6 +17,8 @@ import { createWorkflowExecutor } from "../workflows";
 import { createCodeWorkspace, CodingTaskManager } from "../coding";
 import { BrowserWorkspace } from "../browser";
 import { z } from "zod";
+import { GithubManager, MockGithubProvider } from "../github";
+import { GmailManager, MockGmailProvider } from "../gmail";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
 export const lumoPermissionManager = new PermissionManager();
@@ -43,6 +45,16 @@ export const lumoCodingTasks = new CodingTaskManager(
   lumoRuntimeManager
 );
 export const lumoBrowserWorkspace = new BrowserWorkspace(lumoPermissionManager);
+export const lumoGithubProvider = new MockGithubProvider();
+export const lumoGithub = new GithubManager(
+  lumoPermissionManager,
+  lumoGithubProvider
+);
+export const lumoGmailProvider = new MockGmailProvider();
+export const lumoGmail = new GmailManager(
+  lumoPermissionManager,
+  lumoGmailProvider
+);
 lumoToolRegistry.register(createWebSearchTool());
 for (const tool of utilityTools)
   lumoToolRegistry.register(tool as ToolDefinition);
@@ -135,6 +147,86 @@ lumoToolRegistry.register({
     return {
       ok: false,
       needs: "supported browser operation and required fields",
+    };
+  },
+});
+lumoToolRegistry.register({
+  id: "github_integration",
+  name: "GitHub Integration",
+  description:
+    "Inspect authorized GitHub repositories and prepare controlled repository changes.",
+  category: "external",
+  inputSchema: z
+    .object({
+      operation: z.string().max(40),
+      owner: z.string().max(100).optional(),
+      name: z.string().max(100).optional(),
+      branch: z.string().max(100).optional(),
+      path: z.string().max(300).optional(),
+    })
+    .nullable(),
+  outputSchema: z.unknown(),
+  permissions: ["external"],
+  enabled: true,
+  handler: async (input, context) => {
+    if (!input) return { ok: false, needs: "GitHub operation details" };
+    if (input.operation === "list_repositories")
+      return lumoGithub.listRepositories(context.ownerKey);
+    if (input.operation === "account")
+      return lumoGithub.account(context.ownerKey);
+    if (input.operation === "inspect_repository" && input.owner && input.name)
+      return lumoGithub.inspect(context.ownerKey, {
+        owner: input.owner,
+        name: input.name,
+      });
+    if (
+      input.operation === "read_file" &&
+      input.owner &&
+      input.name &&
+      input.branch &&
+      input.path
+    )
+      return lumoGithub.readFile(context.ownerKey, {
+        owner: input.owner,
+        name: input.name,
+        branch: input.branch,
+        path: input.path,
+      });
+    return {
+      ok: false,
+      needs: "supported read-only GitHub operation and required fields",
+    };
+  },
+});
+lumoToolRegistry.register({
+  id: "gmail_integration",
+  name: "Gmail Integration",
+  description:
+    "Search authorized Gmail content and create drafts without silently sending mail.",
+  category: "external",
+  inputSchema: z
+    .object({
+      operation: z.string().max(40),
+      query: z.string().max(300).optional(),
+      messageId: z.string().max(100).optional(),
+    })
+    .nullable(),
+  outputSchema: z.unknown(),
+  permissions: ["external"],
+  enabled: true,
+  handler: async (input, context) => {
+    if (!input) return { ok: false, needs: "Gmail operation details" };
+    if (input.operation === "account")
+      return lumoGmail.account(context.ownerKey);
+    if (input.operation === "list_messages")
+      return lumoGmail.list(context.ownerKey);
+    if (input.operation === "search_messages" && input.query)
+      return lumoGmail.search(context.ownerKey, input.query);
+    if (input.operation === "inspect_message" && input.messageId)
+      return lumoGmail.message(context.ownerKey, input.messageId);
+    return {
+      ok: false,
+      needs: "supported read-only Gmail operation and required fields",
     };
   },
 });
