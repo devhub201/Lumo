@@ -230,6 +230,21 @@ const lumoRouter = router({
     .query(({ input }) =>
       lumoCodeWorkspace.snapshot(LUMO_OWNER_KEY, input.projectId)
     ),
+  codeRunTask: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().max(80),
+        requestId: z.string().max(120),
+        kind: z.enum(["test", "build", "lint"]),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const task = lumoCodingTasks.create(input.projectId, input.requestId);
+      return {
+        task,
+        result: await lumoCodingTasks.run(task, input.kind, LUMO_OWNER_KEY),
+      };
+    }),
 
   browserCreateSession: publicProcedure.mutation(() =>
     lumoBrowserWorkspace.createSession(LUMO_OWNER_KEY)
