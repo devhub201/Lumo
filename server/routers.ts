@@ -31,9 +31,18 @@ import {
   lumoToolRouter,
   lumoToolSystem,
   lumoWorkflowExecutor,
+  lumoBrowserWorkspace,
+  lumoCodeWorkspace,
+  lumoCodingTasks,
 } from "./lumo/tools/system";
 import { agentPlanSchema } from "./lumo/workflows";
 import { runtimeCommandSchema } from "./lumo/runtime";
+import { browserActionSchema, browserUrlSchema } from "./lumo/browser";
+import {
+  codeContentSchema,
+  projectNameSchema,
+  relativePathSchema,
+} from "./lumo/coding";
 import { createContextManager } from "./lumo/context/manager";
 import { buildDocumentContext } from "./lumo/files/context";
 import { FILE_TOOL_IDS } from "./lumo/files/contracts";
@@ -161,6 +170,87 @@ const lumoRouter = router({
   })),
 
   runtimeCatalog: publicProcedure.query(() => lumoRuntimeManager.list()),
+
+  codingWorkspaceCatalog: publicProcedure.query(() => ({
+    supported: true,
+    maxFileBytes: 1_000_000,
+    operations: [
+      "project",
+      "file",
+      "patch",
+      "snapshot",
+      "diff",
+      "analyze",
+      "task",
+    ],
+    executionPath: "coding_workspace_to_workflow_to_permission_to_runtime",
+  })),
+
+  browserWorkspaceCatalog: publicProcedure.query(() => ({
+    supported: true,
+    maxContentChars: 12_000,
+    operations: ["open", "navigate", "snapshot", "extract", "links"],
+    contentTrust: "untrusted_web_data",
+  })),
+
+  codeCreateProject: publicProcedure
+    .input(z.object({ name: projectNameSchema }))
+    .mutation(({ input }) =>
+      lumoCodeWorkspace.createProject(LUMO_OWNER_KEY, input.name)
+    ),
+  codeListProjects: publicProcedure.query(() =>
+    lumoCodeWorkspace.list(LUMO_OWNER_KEY)
+  ),
+  codeReadFile: publicProcedure
+    .input(
+      z.object({ projectId: z.string().max(80), path: relativePathSchema })
+    )
+    .query(({ input }) =>
+      lumoCodeWorkspace.readFile(LUMO_OWNER_KEY, input.projectId, input.path)
+    ),
+  codeApplyPatch: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().max(80),
+        path: relativePathSchema,
+        beforeHash: z.string().length(64).optional(),
+        content: codeContentSchema,
+      })
+    )
+    .mutation(({ input }) =>
+      lumoCodeWorkspace.applyPatch(LUMO_OWNER_KEY, input.projectId, input)
+    ),
+  codeAnalyze: publicProcedure
+    .input(z.object({ projectId: z.string().max(80) }))
+    .query(({ input }) =>
+      lumoCodeWorkspace.analyze(LUMO_OWNER_KEY, input.projectId)
+    ),
+  codeSnapshot: publicProcedure
+    .input(z.object({ projectId: z.string().max(80) }))
+    .query(({ input }) =>
+      lumoCodeWorkspace.snapshot(LUMO_OWNER_KEY, input.projectId)
+    ),
+
+  browserCreateSession: publicProcedure.mutation(() =>
+    lumoBrowserWorkspace.createSession(LUMO_OWNER_KEY)
+  ),
+  browserOpen: publicProcedure
+    .input(z.object({ sessionId: z.string().max(80), url: browserUrlSchema }))
+    .mutation(({ input }) =>
+      lumoBrowserWorkspace.open(LUMO_OWNER_KEY, input.sessionId, input.url)
+    ),
+  browserSnapshot: publicProcedure
+    .input(z.object({ sessionId: z.string().max(80) }))
+    .query(({ input }) =>
+      lumoBrowserWorkspace.snapshot(LUMO_OWNER_KEY, input.sessionId)
+    ),
+  browserAction: publicProcedure
+    .input(
+      z.object({ sessionId: z.string().max(80), action: browserActionSchema })
+    )
+    .mutation(({ input }) =>
+      lumoBrowserWorkspace.action(LUMO_OWNER_KEY, input.sessionId, input.action)
+    ),
 
   runWorkflow: publicProcedure
     .input(

@@ -7,6 +7,7 @@ import { InMemoryToolRegistry } from "../tools/registry";
 import { utilityTools } from "../tools/utility";
 import { createWebSearchTool } from "../tools/web-search";
 import { DeterministicToolRouter } from "./router";
+import { extractCandidates } from "./extractors";
 
 const fakeSearch = {
   name: "fake-search",
@@ -47,6 +48,19 @@ const route = async (
 ) => router.route({ text, ownerKey: "peter", requestId: "req-test", ...extra });
 
 describe("Phase 10 direct response and utility routing", () => {
+  it("recognizes controlled coding and browser workspace requests", () => {
+    expect(
+      extractCandidates("Create a coding project and patch the code")
+    ).toContainEqual(expect.objectContaining({ toolId: "coding_workspace" }));
+    expect(
+      extractCandidates("Open the website https://example.com")
+    ).toContainEqual(
+      expect.objectContaining({
+        toolId: "browser_workspace",
+        arguments: { operation: "open", url: "https://example.com" },
+      })
+    );
+  });
   it("keeps greetings, explanations, and sufficient direct answers out of tools", async () => {
     const { router } = makeRouter();
     expect((await route(router, "Hello LUMO.")).type).toBe("direct_response");

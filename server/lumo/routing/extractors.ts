@@ -359,6 +359,38 @@ export const extractFileRequest = (text: string): Candidate | null => {
   return null;
 };
 
+export const extractCodingRequest = (text: string): Candidate | null => {
+  if (
+    !/\b(?:code|coding|project|repository|repo|patch|diff|build|test suite)\b/i.test(
+      text
+    )
+  )
+    return null;
+  return {
+    toolId: "coding_workspace",
+    arguments: null,
+    confidence: "medium",
+    reason: "The request names a project-scoped coding workspace operation.",
+  };
+};
+
+export const extractBrowserRequest = (text: string): Candidate | null => {
+  if (
+    !/\b(?:navigate to|open (?:the )?(?:website|url|page)|browser session|extract links)\b/i.test(
+      text
+    )
+  )
+    return null;
+  const url = text.match(/https?:\/\/[^\s]+/i)?.[0]?.replace(/[),.!?]+$/, "");
+  return {
+    toolId: "browser_workspace",
+    arguments: url ? { operation: "open", url } : null,
+    confidence: url ? "high" : "medium",
+    reason:
+      "The request explicitly asks for controlled browser workspace access.",
+  };
+};
+
 export const extractCandidates = (
   text: string,
   context?: RoutingContext
@@ -372,6 +404,8 @@ export const extractCandidates = (
     extractBlueprintRequest(text),
     extractTeachingRequest(text),
     extractFileRequest(text),
+    extractCodingRequest(text),
+    extractBrowserRequest(text),
     extractWebSearch(text, context),
   ].filter((candidate): candidate is Candidate => Boolean(candidate));
   return candidates;
