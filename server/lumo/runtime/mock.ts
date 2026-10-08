@@ -45,6 +45,15 @@ export class MockRuntimeProvider implements RuntimeProvider {
       case "list":
         stdout = "workspace\n";
         break;
+      case "project_test":
+        stdout = `Controlled test operation prepared for ${command.args[0] ?? "project"}.`;
+        break;
+      case "project_build":
+        stdout = `Controlled build operation prepared for ${command.args[0] ?? "project"}.`;
+        break;
+      case "project_lint":
+        stdout = `Controlled lint operation prepared for ${command.args[0] ?? "project"}.`;
+        break;
       default:
         stderr = "Unsupported runtime command.";
         exitCode = 2;

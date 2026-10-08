@@ -28,7 +28,15 @@ export const runtimeTargetSchema = z.object({
 export type RuntimeTarget = z.infer<typeof runtimeTargetSchema>;
 export const runtimeCommandSchema = z
   .object({
-    kind: z.enum(["status", "pwd", "echo", "list"]),
+    kind: z.enum([
+      "status",
+      "pwd",
+      "echo",
+      "list",
+      "project_test",
+      "project_build",
+      "project_lint",
+    ]),
     args: z.array(z.string().max(300)).max(4).default([]),
     cwd: z.string().min(1).max(500).default("/workspace"),
     timeoutMs: z.number().int().min(50).max(10000).default(3000),

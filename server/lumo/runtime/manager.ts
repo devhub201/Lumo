@@ -81,7 +81,10 @@ export class RuntimeManager {
       command.data.kind === "status" ||
       command.data.kind === "pwd" ||
       command.data.kind === "echo" ||
-      command.data.kind === "list"
+      command.data.kind === "list" ||
+      command.data.kind === "project_test" ||
+      command.data.kind === "project_build" ||
+      command.data.kind === "project_lint"
         ? "shell"
         : null;
     if (!capability || !target.capabilities.includes(capability))
