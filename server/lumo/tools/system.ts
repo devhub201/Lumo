@@ -12,6 +12,8 @@ import { fileTools } from "../files";
 import { visionTools } from "../vision";
 import { blueprintTools } from "../blueprints";
 import { teachingTools } from "../teaching";
+import { MockRuntimeProvider, RuntimeManager } from "../runtime";
+import { createWorkflowExecutor } from "../workflows";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
 export const lumoPermissionManager = new PermissionManager();
@@ -19,6 +21,19 @@ export const lumoToolPermissions = new ManagedToolPermissions(
   lumoPermissionManager,
   ["network", "files", "vision", "camera", "blueprint", "teaching"]
 );
+export const lumoRuntimeManager = new RuntimeManager(
+  lumoPermissionManager,
+  new MockRuntimeProvider()
+);
+lumoRuntimeManager.register({
+  id: "local-mock",
+  provider: "mock-local",
+  displayName: "Local Mock Runtime",
+  connectionState: "ready",
+  capabilities: ["shell", "filesystem"],
+  authorized: true,
+  metadata: { mode: "controlled", environment: "test" },
+});
 lumoToolRegistry.register(createWebSearchTool());
 for (const tool of utilityTools)
   lumoToolRegistry.register(tool as ToolDefinition);
@@ -44,3 +59,4 @@ export const lumoToolSystem: ToolSystem = {
   execute: input => lumoToolExecutor.execute(input),
   listTools: () => lumoToolRegistry.listPublic(),
 };
+export const lumoWorkflowExecutor = createWorkflowExecutor(lumoToolSystem);

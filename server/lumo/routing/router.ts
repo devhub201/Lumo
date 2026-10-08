@@ -3,6 +3,8 @@ import { normalizeFault } from "../faults/normalize";
 import {
   extractCandidates,
   hasUnsupportedCapability,
+  isExplicitRuntimeRequest,
+  isExplicitWorkflowRequest,
   isDirectResponse,
   toolIsAvailable,
 } from "./extractors";
@@ -99,6 +101,16 @@ export class DeterministicToolRouter implements ToolRouter {
         "loop_blocked"
       );
     if (isDirectResponse(text)) return direct(input.requestId);
+    if (isExplicitWorkflowRequest(text))
+      return clarification(
+        input.requestId,
+        "I can prepare only a bounded workflow plan. Provide the exact ordered steps and tools, and I will validate the plan before execution."
+      );
+    if (isExplicitRuntimeRequest(text))
+      return clarification(
+        input.requestId,
+        "Specify the authorized runtime target and structured command. Runtime execution requires explicit permission and sensitive-action authorization."
+      );
     if (hasUnsupportedCapability(text))
       return unsupported(input.requestId, "I don't have that capability yet.");
 

@@ -26,7 +26,14 @@ import {
   type MemoryKind,
 } from "./lumo/contracts";
 import { DatabaseLumoStorage } from "./lumo/storage";
-import { lumoToolRouter, lumoToolSystem } from "./lumo/tools/system";
+import {
+  lumoRuntimeManager,
+  lumoToolRouter,
+  lumoToolSystem,
+  lumoWorkflowExecutor,
+} from "./lumo/tools/system";
+import { agentPlanSchema } from "./lumo/workflows";
+import { runtimeCommandSchema } from "./lumo/runtime";
 import { createContextManager } from "./lumo/context/manager";
 import { buildDocumentContext } from "./lumo/files/context";
 import { FILE_TOOL_IDS } from "./lumo/files/contracts";
@@ -145,6 +152,61 @@ const lumoRouter = router({
   })),
 
   toolCatalog: publicProcedure.query(() => lumoToolSystem.listTools()),
+
+  workflowCatalog: publicProcedure.query(() => ({
+    maxSteps: 20,
+    maxToolCalls: 30,
+    supported: true,
+    executionPath: "validated_plan_to_existing_tool_executor",
+  })),
+
+  runtimeCatalog: publicProcedure.query(() => lumoRuntimeManager.list()),
+
+  runWorkflow: publicProcedure
+    .input(
+      z.object({
+        plan: agentPlanSchema,
+        signal: z.undefined().optional(),
+      })
+    )
+    .mutation(async ({ input }) =>
+      lumoWorkflowExecutor.execute(input.plan, { ownerKey: LUMO_OWNER_KEY })
+    ),
+
+  runtimeStatus: publicProcedure
+    .input(z.object({ targetId: z.string().min(1).max(80) }))
+    .query(async ({ input }) => {
+      const target = lumoRuntimeManager
+        .list()
+        .find(candidate => candidate.id === input.targetId);
+      return target
+        ? { target, status: target.connectionState }
+        : { target: null, status: "offline" as const };
+    }),
+
+  runRuntime: publicProcedure
+    .input(
+      z.object({
+        targetId: z.string().min(1).max(80),
+        command: runtimeCommandSchema,
+        authorization: z
+          .object({
+            authorized: z.boolean(),
+            action: z.string().max(80),
+            reason: z.string().max(300),
+            issuedAt: z.number(),
+          })
+          .optional(),
+      })
+    )
+    .mutation(async ({ input }) =>
+      lumoRuntimeManager.execute({
+        targetId: input.targetId,
+        command: input.command,
+        ownerKey: LUMO_OWNER_KEY,
+        authorization: input.authorization,
+      })
+    ),
 
   routeRequest: publicProcedure
     .input(

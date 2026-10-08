@@ -382,6 +382,16 @@ export const hasUnsupportedCapability = (text: string) =>
     text
   );
 
+export const isExplicitWorkflowRequest = (text: string) =>
+  /\b(?:do these \w+ tasks|then save|step \d+|workflow|agent plan|run this sequence)\b/i.test(
+    text
+  );
+
+export const isExplicitRuntimeRequest = (text: string) =>
+  /\b(?:authorized runtime|server status|run this command|runtime status)\b/i.test(
+    text
+  );
+
 export const isDirectResponse = (text: string) =>
   /^(?:lumo[:,]?\s*)?(?:hello|hi|hey|good morning|good evening)\b/i.test(
     text
