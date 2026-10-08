@@ -4,6 +4,7 @@ import type {
   LumoPersonality,
   MemoryKind,
 } from "./contracts";
+import { untrustedDataBoundary } from "./security/safety";
 
 export const DEFAULT_PERSONALITY: LumoPersonality = {
   name: "LUMO",
@@ -120,7 +121,7 @@ export function memoryPrompt(
   return `Persistent memory retrieved for this turn (use only when relevant):\n${memories
     .map(
       memory =>
-        `- [${memory.kind}] ${memory.content}${memory.tags ? ` (${memory.tags})` : ""}`
+        `- [${memory.kind}] ${untrustedDataBoundary(memory.content)}${memory.tags ? ` (${untrustedDataBoundary(memory.tags)})` : ""}`
     )
     .join("\n")}`;
 }

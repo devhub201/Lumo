@@ -37,6 +37,19 @@ export const createVoiceInput = () => {
           "unsupported",
           "Voice input is not supported in this browser. Please use text."
         );
+      if (navigator.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
+          stream.getTracks().forEach(track => track.stop());
+        } catch {
+          throw new VoiceError(
+            "permission_denied",
+            "Microphone permission was not granted. Text mode remains available."
+          );
+        }
+      }
       const current = new Speech() as Recognition;
       recognition = current;
       current.lang = "en-IN";

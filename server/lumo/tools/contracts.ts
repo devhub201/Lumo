@@ -25,6 +25,7 @@ export type ToolError = {
     | "tool_disabled"
     | "invalid_arguments"
     | "permission_denied"
+    | "authorization_required"
     | "execution_failed"
     | "invalid_output"
     | "network_error"
@@ -51,6 +52,12 @@ export type ToolExecutionContext = {
   ownerKey: string;
   requestId: string;
   logger: LumoLogger;
+  authorization?: {
+    authorized: boolean;
+    action: string;
+    reason: string;
+    issuedAt: number;
+  };
 };
 
 export type ToolHandler<TInput, TOutput> = (
@@ -68,6 +75,7 @@ export type ToolDefinition<TInput = unknown, TOutput = unknown> = {
   permissions: ToolPermission[];
   enabled: boolean;
   handler: ToolHandler<TInput, TOutput>;
+  sensitiveAction?: string;
 };
 
 export type PublicToolMetadata = Pick<
@@ -77,6 +85,10 @@ export type PublicToolMetadata = Pick<
 
 export interface ToolPermissionChecker {
   canUse(ownerKey: string, permission: ToolPermission): Promise<boolean>;
+  explain?(
+    ownerKey: string,
+    permission: ToolPermission
+  ): Promise<{ allowed: boolean; reason: string }>;
 }
 
 export interface ToolRegistry {
@@ -93,6 +105,12 @@ export interface ToolSystem {
     arguments: unknown;
     ownerKey: string;
     requestId: string;
+    authorization?: {
+      authorized: boolean;
+      action: string;
+      reason: string;
+      issuedAt: number;
+    };
   }): Promise<ToolResult<TOutput>>;
   listTools(): PublicToolMetadata[];
 }

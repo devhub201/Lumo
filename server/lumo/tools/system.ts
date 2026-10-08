@@ -1,6 +1,7 @@
 import { lumoLogger } from "../logger";
 import { ToolExecutor } from "./executor";
-import { AllowlistToolPermissions } from "./permissions";
+import { ManagedToolPermissions } from "../security/tool-permissions";
+import { PermissionManager } from "../security/permissions";
 import { InMemoryToolRegistry } from "./registry";
 import type { ToolSystem } from "./contracts";
 import type { ToolDefinition } from "./contracts";
@@ -13,14 +14,11 @@ import { blueprintTools } from "../blueprints";
 import { teachingTools } from "../teaching";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
-export const lumoToolPermissions = new AllowlistToolPermissions([
-  "network",
-  "files",
-  "vision",
-  "camera",
-  "blueprint",
-  "teaching",
-]);
+export const lumoPermissionManager = new PermissionManager();
+export const lumoToolPermissions = new ManagedToolPermissions(
+  lumoPermissionManager,
+  ["network", "files", "vision", "camera", "blueprint", "teaching"]
+);
 lumoToolRegistry.register(createWebSearchTool());
 for (const tool of utilityTools)
   lumoToolRegistry.register(tool as ToolDefinition);

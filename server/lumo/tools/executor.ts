@@ -7,6 +7,7 @@ import type {
   ToolRegistry,
   ToolResult,
 } from "./contracts";
+import { requireSensitiveAuthorization } from "../security/safety";
 
 export class ToolExecutor {
   constructor(
@@ -20,6 +21,12 @@ export class ToolExecutor {
     arguments: unknown;
     ownerKey: string;
     requestId?: string;
+    authorization?: {
+      authorized: boolean;
+      action: string;
+      reason: string;
+      issuedAt: number;
+    };
   }): Promise<ToolResult<TOutput>> {
     const requestId = input.requestId ?? nanoid(12);
     const startedAt = Date.now();
@@ -75,12 +82,24 @@ export class ToolExecutor {
       }
     }
 
+    if (
+      tool.sensitiveAction &&
+      !requireSensitiveAuthorization(input.authorization, tool.sensitiveAction)
+    ) {
+      return this.fail<TOutput>(tool.id, requestId, startedAt, {
+        code: "authorization_required",
+        message: "Explicit authorization is required for this action.",
+        retryable: false,
+      });
+    }
+
     this.logger.info("tool_execution_started", { toolId: tool.id, requestId });
     try {
       const output = await tool.handler(parsed.data, {
         ownerKey: input.ownerKey,
         requestId,
         logger: this.logger,
+        authorization: input.authorization,
       });
       const parsedOutput = tool.outputSchema.safeParse(output);
       if (!parsedOutput.success) {

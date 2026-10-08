@@ -30,6 +30,10 @@ import {
 import type { ToolResult } from "./tools/contracts";
 import { buildVisionContext, visionResultToolResult } from "./vision/context";
 import type { VisionResult } from "./vision/contracts";
+import {
+  isMemoryWriteEligible,
+  rankRefinedMemories,
+} from "./memory/refinement";
 
 const BASE_IDENTITY = `You are LUMO, Peter's personal AI companion and thinking partner. Be conversational and natural rather than sounding like a customer-support bot, FAQ, or scripted assistant. Be casual when the moment is casual and technically capable when the question is technical, scientific, educational, or about programming. Do not constantly announce that you are an AI. Do not use excessive emojis or pretend to have human feelings. Address Peter naturally when it fits, but do not repeat his name in every response. Do not claim to have used tools, files, memory, web, vision, voice, or blueprints unless the system explicitly provides them.`;
 
@@ -237,7 +241,12 @@ export function createLumoCore({
 
   const retrieveMemories = async (query: string, requestId: string) => {
     const result = await withFallback({
-      primary: () => storage.searchMemories(ownerKey, query, LUMO_MEMORY_LIMIT),
+      primary: async () =>
+        rankRefinedMemories(
+          await storage.searchMemories(ownerKey, query, LUMO_MEMORY_LIMIT),
+          query,
+          LUMO_MEMORY_LIMIT
+        ),
       fallback: () => [],
       logger,
       requestId,
@@ -248,6 +257,12 @@ export function createLumoCore({
   const storeMemory = async (
     input: Parameters<LumoStorage["createMemory"]>[0]
   ) => {
+    if (!isMemoryWriteEligible(input.content, input.source ?? "inferred")) {
+      logger.warn("memory_write_blocked", {
+        reason: "sensitive_or_untrusted_content",
+      });
+      return { memory: null, failed: true };
+    }
     try {
       const memory = await storage.createMemory(input);
       logger.info("memory_stored", {
