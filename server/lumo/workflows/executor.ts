@@ -7,6 +7,7 @@ import type {
   WorkflowStep,
 } from "./contracts";
 import { agentPlanSchema } from "./contracts";
+import type { PerformanceRecorder } from "../performance";
 export const validateAgentPlan = (plan: unknown) =>
   agentPlanSchema.safeParse(plan);
 const resolve = (
@@ -49,7 +50,10 @@ const withTimeout = async <T>(task: Promise<T>, timeoutMs: number) => {
   }
 };
 export class WorkflowExecutor {
-  constructor(private readonly tools: LumoToolBoundary) {}
+  constructor(
+    private readonly tools: LumoToolBoundary,
+    private readonly performance?: PerformanceRecorder
+  ) {}
   async execute(
     plan: AgentPlan,
     input: { ownerKey: string; signal?: AbortSignal }
@@ -61,6 +65,14 @@ export class WorkflowExecutor {
     let state: "completed" | "failed" | "cancelled" | "partial" = "completed";
     let calls = 0;
     if (plan.steps.length > plan.budget.maxSteps) {
+      this.performance?.record({
+        requestId: plan.requestId,
+        operation: "workflow.execute",
+        startAt: startedAt,
+        endAt: Date.now(),
+        status: "failure",
+        metadata: { reason: "max_steps" },
+      });
       return {
         executionId,
         workflowId: `workflow:${plan.requestId}`,
@@ -151,7 +163,7 @@ export class WorkflowExecutor {
         break;
       }
     }
-    return {
+    const result: AgentResult = {
       executionId,
       workflowId: `workflow:${plan.requestId}`,
       requestId: plan.requestId,
@@ -160,7 +172,23 @@ export class WorkflowExecutor {
       partialResult: state === "partial",
       durationMs: Date.now() - startedAt,
     };
+    this.performance?.record({
+      requestId: plan.requestId,
+      operation: "workflow.execute",
+      startAt: startedAt,
+      endAt: Date.now(),
+      status:
+        result.state === "completed"
+          ? "success"
+          : result.state === "cancelled"
+            ? "cancelled"
+            : "failure",
+      metadata: { steps: Object.keys(result.steps).length, calls },
+    });
+    return result;
   }
 }
-export const createWorkflowExecutor = (tools: LumoToolBoundary) =>
-  new WorkflowExecutor(tools);
+export const createWorkflowExecutor = (
+  tools: LumoToolBoundary,
+  performance?: PerformanceRecorder
+) => new WorkflowExecutor(tools, performance);

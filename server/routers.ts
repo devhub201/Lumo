@@ -36,6 +36,7 @@ import {
   lumoCodingTasks,
   lumoGithub,
   lumoGmail,
+  lumoPerformance,
 } from "./lumo/tools/system";
 import { agentPlanSchema } from "./lumo/workflows";
 import { runtimeCommandSchema } from "./lumo/runtime";
@@ -72,6 +73,7 @@ const lumoCore = createLumoCore({
   ownerKey: LUMO_OWNER_KEY,
   toolSystem: lumoToolSystem,
   router: lumoToolRouter,
+  performance: lumoPerformance,
 });
 
 const memoryKind = z.enum([
@@ -172,6 +174,24 @@ const lumoRouter = router({
   })),
 
   runtimeCatalog: publicProcedure.query(() => lumoRuntimeManager.list()),
+  performanceCatalog: publicProcedure.query(() => ({
+    supported: true,
+    maxMetrics: 500,
+    retention: "bounded_in_memory",
+    secretPolicy: "metadata_only_no_credentials_or_content",
+    boundaries: [
+      "tool",
+      "workflow",
+      "request",
+      "provider",
+      "workspace",
+      "runtime",
+    ],
+  })),
+  performanceSummary: publicProcedure.query(() => lumoPerformance.summary()),
+  performanceMetrics: publicProcedure
+    .input(z.object({ limit: z.number().int().min(0).max(100).default(50) }))
+    .query(({ input }) => lumoPerformance.list(input.limit)),
 
   codingWorkspaceCatalog: publicProcedure.query(() => ({
     supported: true,

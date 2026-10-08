@@ -30,6 +30,7 @@ import {
 import type { ToolResult } from "./tools/contracts";
 import { buildVisionContext, visionResultToolResult } from "./vision/context";
 import type { VisionResult } from "./vision/contracts";
+import type { PerformanceRecorder } from "./performance";
 import {
   isMemoryWriteEligible,
   rankRefinedMemories,
@@ -194,6 +195,7 @@ export function createLumoCore({
   ownerKey,
   toolSystem,
   router,
+  performance,
 }: {
   provider: LumoProvider;
   storage: LumoStorage;
@@ -201,6 +203,7 @@ export function createLumoCore({
   ownerKey: string;
   toolSystem?: LumoToolBoundary;
   router?: ToolRouter;
+  performance?: PerformanceRecorder;
 }) {
   const contextManager = createContextManager(logger);
   const loadPersonality = async (): Promise<LumoPersonality> => {
@@ -240,6 +243,7 @@ export function createLumoCore({
   };
 
   const retrieveMemories = async (query: string, requestId: string) => {
+    const startedAt = Date.now();
     const result = await withFallback({
       primary: async () =>
         rankRefinedMemories(
@@ -250,6 +254,14 @@ export function createLumoCore({
       fallback: () => [],
       logger,
       requestId,
+    });
+    performance?.record({
+      requestId,
+      operation: "memory.retrieve",
+      startAt: startedAt,
+      endAt: Date.now(),
+      status: result.usedFallback ? "degraded" : "success",
+      metadata: { count: result.value.length },
     });
     return { memories: result.value, failed: result.usedFallback };
   };
@@ -393,6 +405,7 @@ export function createLumoCore({
       const nextDepth = isGoDeeper(userText)
         ? Math.min(conversation.depthLevel + 1, 8)
         : conversation.depthLevel;
+      const contextStartedAt = Date.now();
       const normalizedContext = contextManager.build(
         buildContextInput({
           requestId,
@@ -421,6 +434,14 @@ export function createLumoCore({
             : [],
         })
       );
+      performance?.record({
+        requestId,
+        operation: "context.build",
+        startAt: contextStartedAt,
+        endAt: Date.now(),
+        status: normalizedContext.metadata.truncated ? "degraded" : "success",
+        metadata: { messages: normalizedContext.metadata.messageCount },
+      });
       const providerMessages = normalizedContext.messages;
 
       try {
@@ -503,6 +524,16 @@ export function createLumoCore({
           conversation.id
         );
         const elapsedMs = Date.now() - startedAt;
+        performance?.record({
+          requestId,
+          operation: "core.sendMessage",
+          startAt: startedAt,
+          endAt: Date.now(),
+          status: "success",
+          metadata: {
+            contextMessages: normalizedContext.metadata.messageCount,
+          },
+        });
         logger.info("turn_completed", {
           requestId,
           conversationId: conversation.id,
@@ -525,6 +556,14 @@ export function createLumoCore({
           },
         };
       } catch (error) {
+        performance?.record({
+          requestId,
+          operation: "core.sendMessage",
+          startAt: startedAt,
+          endAt: Date.now(),
+          status: "failure",
+          metadata: { error: "normalized_failure" },
+        });
         const fault = normalizeFault(error, { requestId });
         logger.error("turn_failed", {
           requestId,

@@ -8,12 +8,14 @@ import type {
   ToolResult,
 } from "./contracts";
 import { requireSensitiveAuthorization } from "../security/safety";
+import type { PerformanceRecorder } from "../performance";
 
 export class ToolExecutor {
   constructor(
     private readonly registry: ToolRegistry,
     private readonly permissions: ToolPermissionChecker,
-    private readonly logger: LumoLogger
+    private readonly logger: LumoLogger,
+    private readonly performance?: PerformanceRecorder
   ) {}
 
   async execute<TOutput = unknown>(input: {
@@ -115,6 +117,14 @@ export class ToolExecutor {
         });
       }
       const durationMs = Date.now() - startedAt;
+      this.performance?.record({
+        requestId,
+        operation: `tool.${tool.id}`,
+        startAt: startedAt,
+        endAt: Date.now(),
+        status: "success",
+        metadata: { toolId: tool.id },
+      });
       this.logger.info("tool_execution_completed", {
         toolId: tool.id,
         requestId,
@@ -162,6 +172,19 @@ export class ToolExecutor {
     startedAt: number,
     error: NonNullable<ReturnType<typeof toolError>["error"]>
   ): ToolResult<TOutput> {
-    return toolError<TOutput>(toolId, requestId, Date.now() - startedAt, error);
+    const durationMs = Date.now() - startedAt;
+    this.performance?.record({
+      requestId,
+      operation: `tool.${toolId}`,
+      startAt: startedAt,
+      endAt: Date.now(),
+      status:
+        error.code === "permission_denied" ||
+        error.code === "authorization_required"
+          ? "degraded"
+          : "failure",
+      metadata: { errorCode: error.code },
+    });
+    return toolError<TOutput>(toolId, requestId, durationMs, error);
   }
 }

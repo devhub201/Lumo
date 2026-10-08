@@ -19,6 +19,7 @@ import { BrowserWorkspace } from "../browser";
 import { z } from "zod";
 import { GithubManager, MockGithubProvider } from "../github";
 import { GmailManager, MockGmailProvider } from "../gmail";
+import { PerformanceRecorder, PERFORMANCE_LIMITS } from "../performance";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
 export const lumoPermissionManager = new PermissionManager();
@@ -54,6 +55,9 @@ export const lumoGmailProvider = new MockGmailProvider();
 export const lumoGmail = new GmailManager(
   lumoPermissionManager,
   lumoGmailProvider
+);
+export const lumoPerformance = new PerformanceRecorder(
+  PERFORMANCE_LIMITS.maxTelemetryMetrics
 );
 lumoToolRegistry.register(createWebSearchTool());
 for (const tool of utilityTools)
@@ -233,7 +237,8 @@ lumoToolRegistry.register({
 export const lumoToolExecutor = new ToolExecutor(
   lumoToolRegistry,
   lumoToolPermissions,
-  lumoLogger
+  lumoLogger,
+  lumoPerformance
 );
 
 export const lumoToolRouter = createToolRouter({
@@ -245,4 +250,7 @@ export const lumoToolSystem: ToolSystem = {
   execute: input => lumoToolExecutor.execute(input),
   listTools: () => lumoToolRegistry.listPublic(),
 };
-export const lumoWorkflowExecutor = createWorkflowExecutor(lumoToolSystem);
+export const lumoWorkflowExecutor = createWorkflowExecutor(
+  lumoToolSystem,
+  lumoPerformance
+);
