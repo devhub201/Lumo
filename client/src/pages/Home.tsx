@@ -1,6 +1,7 @@
 import { Streamdown } from "streamdown";
 import {
   AlertTriangle,
+  Activity,
   BrainCircuit,
   Camera,
   CameraOff,
@@ -17,6 +18,8 @@ import {
   ScanEye,
   Send,
   ShieldCheck,
+  Sparkles,
+  Fingerprint,
   Terminal,
 } from "lucide-react";
 import {
@@ -45,6 +48,7 @@ import { detectModeCommand } from "../../../server/lumo/interaction/commands";
 import type { InteractionMode } from "../../../server/lumo/interaction/contracts";
 import type { TeachingSession } from "../../../server/lumo/teaching/contracts";
 import { createSpeechOutput, createVoiceInput, VoiceError } from "@/lib/voice";
+import { verifyBiometric } from "@/lib/biometric";
 
 type MemoryKind = "preference" | "fact" | "project" | "summary" | "knowledge";
 
@@ -127,6 +131,10 @@ export default function Home() {
   );
   const [interactionMode, setInteractionMode] =
     useState<InteractionMode>("text");
+  const [workspacePreset, setWorkspacePreset] = useState("Peter Mode");
+  const [securityStatus, setSecurityStatus] = useState(
+    "native biometric ready when supported"
+  );
   const [voiceStatus, setVoiceStatus] = useState("text mode");
   const voiceInputRef = useRef<ReturnType<typeof createVoiceInput> | null>(
     null
@@ -148,6 +156,9 @@ export default function Home() {
   const sendMutation = trpc.lumo.send.useMutation();
   const memoryMutation = trpc.lumo.createMemory.useMutation();
   const runVisionMutation = trpc.lumo.runVision.useMutation();
+  const performanceSummaryQuery = trpc.lumo.performanceSummary.useQuery();
+  const githubCatalogQuery = trpc.lumo.githubCatalog.useQuery();
+  const gmailCatalogQuery = trpc.lumo.gmailCatalog.useQuery();
 
   useEffect(() => {
     voiceInputRef.current = createVoiceInput();
@@ -421,6 +432,14 @@ export default function Home() {
     );
   };
 
+  const authenticateSensitiveAction = async () => {
+    setSecurityStatus("waiting for device biometric prompt");
+    const result = await verifyBiometric();
+    setSecurityStatus(
+      result.verified ? "biometric verified for this session" : result.reason
+    );
+  };
+
   return (
     <div className="lumo-shell">
       <header className="lumo-topbar">
@@ -437,8 +456,10 @@ export default function Home() {
         </div>
         <div className="lumo-topbar-meta">
           <span className="status-pill">
-            <span className="status-dot" /> core online
+            <span className={`status-dot ${pendingText ? "busy" : ""}`} />
+            {pendingText ? "processing" : "core online"}
           </span>
+          <span className="mode-chip">{workspacePreset}</span>
           <span className="mono">owner: Peter</span>
         </div>
       </header>
@@ -508,6 +529,80 @@ export default function Home() {
         </aside>
 
         <main className="lumo-main">
+          <section className="lumo-hud" aria-label="LUMO live workspace">
+            <div className="orb-card">
+              <div
+                className={`lumo-orb ${pendingText ? "orb-active" : ""} ${interactionMode === "voice" ? "orb-voice" : ""}`}
+                aria-hidden="true"
+              >
+                <span />
+              </div>
+              <div>
+                <p className="eyebrow">live intelligence</p>
+                <strong>
+                  {pendingText
+                    ? "Processing request"
+                    : interactionMode === "voice"
+                      ? voiceStatus
+                      : "Ready for direction"}
+                </strong>
+                <span className="hud-subtitle">
+                  {cameraOpen
+                    ? "camera session active"
+                    : "single-user secure workspace"}
+                </span>
+              </div>
+            </div>
+            <div className="hud-metrics">
+              <div>
+                <span>turns</span>
+                <strong>{conversationsQuery.data?.length ?? 0}</strong>
+              </div>
+              <div>
+                <span>telemetry</span>
+                <strong>{performanceSummaryQuery.data?.count ?? 0}</strong>
+              </div>
+              <div>
+                <span>latency</span>
+                <strong>
+                  {lastDiagnostics ? `${lastDiagnostics.elapsedMs}ms` : "—"}
+                </strong>
+              </div>
+            </div>
+            <div className="hud-actions">
+              <button
+                type="button"
+                onClick={() => setDraft("Summarize my current workspace")}
+              >
+                <Sparkles size={13} /> Quick brief
+              </button>
+              <button
+                type="button"
+                onClick={() => void openCamera()}
+                disabled={cameraOpen}
+              >
+                <Camera size={13} /> Vision
+              </button>
+              <select
+                value={workspacePreset}
+                onChange={event => setWorkspacePreset(event.target.value)}
+                aria-label="Workspace preset"
+              >
+                <option>Peter Mode</option>
+                <option>Study</option>
+                <option>Coding</option>
+                <option>Creator</option>
+                <option>Gaming</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => void authenticateSensitiveAction()}
+                title="Verify sensitive actions"
+              >
+                <Fingerprint size={13} /> Secure
+              </button>
+            </div>
+          </section>
           <div className="conversation-header">
             <div>
               <p className="eyebrow">
@@ -825,6 +920,46 @@ export default function Home() {
                 }
               />
             </div>
+          </section>
+
+          <section className="inspector-section">
+            <div className="section-label">
+              <span>connections</span>
+              <Activity size={14} />
+            </div>
+            <div className="connection-grid">
+              <DiagnosticRow
+                label="GitHub"
+                value={
+                  githubCatalogQuery.data?.providerMode ===
+                  "mock_disconnected_until_explicit_provider_connection"
+                    ? "disconnected"
+                    : "connected"
+                }
+                tone="warn"
+              />
+              <DiagnosticRow
+                label="Gmail"
+                value={
+                  gmailCatalogQuery.data?.providerMode ===
+                  "mock_disconnected_until_explicit_provider_connection"
+                    ? "disconnected"
+                    : "connected"
+                }
+                tone="warn"
+              />
+            </div>
+            <p className="empty-note">
+              OAuth is user-initiated and not configured in this build.
+            </p>
+          </section>
+
+          <section className="inspector-section">
+            <div className="section-label">
+              <span>security layer</span>
+              <ShieldCheck size={14} />
+            </div>
+            <p className="empty-note">{securityStatus}</p>
           </section>
 
           <section className="inspector-section">
