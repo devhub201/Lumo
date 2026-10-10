@@ -1264,6 +1264,7 @@ function AuthenticationScreen({
 }) {
   const busy = state === "checking";
   const verifiedCapability = availability?.supported === true;
+  const capabilityLoading = availability === null;
   return (
     <div className="auth-screen">
       <header className="auth-topbar">
@@ -1358,21 +1359,34 @@ function AuthenticationScreen({
             <span>SECURITY STATUS</span>
             <b />
           </div>
-          <div className="auth-status-card">
-            <span className="auth-status-icon">
-              <ShieldCheck size={18} />
-            </span>
-            <div>
-              <strong>
-                {busy
-                  ? "Checking capability"
-                  : verifiedCapability
-                    ? "Awaiting verification"
-                    : "Unavailable"}
-              </strong>
-              <small>{busy ? "Querying native device" : message}</small>
+          {capabilityLoading ? (
+            <div
+              className="auth-status-card auth-skeleton-card"
+              aria-label="Loading security capability"
+            >
+              <span className="auth-skeleton auth-skeleton-icon" />
+              <div className="auth-skeleton-copy">
+                <span className="auth-skeleton auth-skeleton-line wide" />
+                <span className="auth-skeleton auth-skeleton-line" />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="auth-status-card">
+              <span className="auth-status-icon">
+                <ShieldCheck size={18} />
+              </span>
+              <div>
+                <strong>
+                  {busy
+                    ? "Checking capability"
+                    : verifiedCapability
+                      ? "Awaiting verification"
+                      : "Unavailable"}
+                </strong>
+                <small>{busy ? "Querying native device" : message}</small>
+              </div>
+            </div>
+          )}
           <div className="auth-fact">
             <Fingerprint size={21} />
             <div>

@@ -2275,3 +2275,168 @@ body {
     animation: none;
   }
 }
+
+/* Premium AI-core refinement: layered technical rings, restrained light, no cartoon treatment. */
+.auth-screen {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.auth-topbar {
+  padding-left: max(18px, calc(42px + env(safe-area-inset-left)));
+  padding-right: max(18px, calc(42px + env(safe-area-inset-right)));
+}
+.auth-layout {
+  width: min(1450px, calc(100% - 48px));
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.auth-energy-orb {
+  isolation: isolate;
+  background: radial-gradient(
+    circle at 42% 38%,
+    rgba(227, 255, 255, 0.9) 0 1%,
+    rgba(82, 190, 255, 0.9) 4%,
+    rgba(31, 73, 167, 0.72) 16%,
+    rgba(8, 15, 50, 0.98) 51%,
+    rgba(2, 7, 21, 0.35) 63%,
+    transparent 68%
+  );
+  box-shadow:
+    0 0 0 1px rgba(91, 194, 255, 0.28),
+    0 0 28px rgba(42, 135, 255, 0.52),
+    0 0 90px rgba(48, 69, 210, 0.3),
+    inset -18px -20px 30px rgba(145, 64, 255, 0.3);
+}
+.auth-energy-orb::before {
+  inset: 7% -15%;
+  border: 1px solid rgba(84, 217, 255, 0.72);
+  transform: rotate(-24deg);
+  box-shadow:
+    0 0 9px rgba(74, 194, 255, 0.54),
+    inset 0 0 8px rgba(76, 168, 255, 0.22);
+  animation: auth-ring-drift 10s linear infinite;
+}
+.auth-energy-orb::after {
+  inset: 17% -9%;
+  border: 1px solid rgba(190, 117, 255, 0.55);
+  transform: rotate(43deg);
+  box-shadow: 0 0 12px rgba(151, 87, 255, 0.34);
+  animation: auth-ring-drift-reverse 14s linear infinite;
+}
+.auth-energy-orb span {
+  inset: 40%;
+  background: #dffcff;
+  box-shadow:
+    0 0 12px 4px #56d5ff,
+    0 0 35px 8px rgba(83, 114, 255, 0.65);
+  animation: auth-core-breathe 4.5s ease-in-out infinite;
+}
+@keyframes auth-ring-drift {
+  to {
+    transform: rotate(336deg);
+  }
+}
+@keyframes auth-ring-drift-reverse {
+  to {
+    transform: rotate(-317deg);
+  }
+}
+@keyframes auth-core-breathe {
+  50% {
+    transform: scale(1.28);
+    opacity: 0.78;
+  }
+}
+.auth-biometric-visual {
+  background: radial-gradient(
+    circle at 45% 42%,
+    rgba(123, 209, 255, 0.22),
+    rgba(13, 30, 70, 0.66) 47%,
+    rgba(2, 10, 27, 0.86) 66%,
+    transparent 68%
+  );
+  box-shadow:
+    0 0 0 8px rgba(44, 117, 234, 0.08),
+    0 0 34px rgba(37, 132, 255, 0.38),
+    inset 0 0 22px rgba(110, 74, 255, 0.28);
+}
+.auth-biometric-visual::before {
+  border-color: rgba(85, 201, 255, 0.68);
+  border-left-color: transparent;
+  border-right-color: transparent;
+  animation: auth-ring-drift 8s linear infinite;
+}
+.auth-biometric-visual::after {
+  border-color: rgba(174, 113, 255, 0.62);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  animation: auth-ring-drift-reverse 11s linear infinite;
+}
+.auth-biometric-visual span {
+  border-style: solid;
+  border-color: rgba(106, 208, 255, 0.34) transparent;
+}
+.auth-skeleton-card {
+  min-height: 58px;
+  align-items: center;
+}
+.auth-skeleton {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: rgba(119, 166, 206, 0.16);
+}
+.auth-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(180, 224, 255, 0.13),
+    transparent
+  );
+  animation: auth-skeleton-shimmer 1.8s ease-in-out infinite;
+}
+.auth-skeleton-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+.auth-skeleton-copy {
+  flex: 1;
+}
+.auth-skeleton-line {
+  width: 72%;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 3px;
+}
+.auth-skeleton-line.wide {
+  width: 46%;
+  margin-top: 0;
+}
+@keyframes auth-skeleton-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (orientation: landscape) {
+  .auth-layout {
+    max-width: calc(
+      100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)
+    );
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-energy-orb::before,
+  .auth-energy-orb::after,
+  .auth-energy-orb span,
+  .auth-biometric-visual::before,
+  .auth-biometric-visual::after,
+  .auth-skeleton::after {
+    animation: none;
+  }
+}
