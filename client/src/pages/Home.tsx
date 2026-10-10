@@ -1281,7 +1281,10 @@ function AuthenticationScreen({
       </header>
       <div className="auth-layout">
         <section className="auth-identity-panel">
-          <div className="auth-energy-orb" aria-hidden="true">
+          <div
+            className={`auth-energy-orb auth-energy-${state}`}
+            aria-hidden="true"
+          >
             <span />
           </div>
           <p className="auth-wordmark">LUMO</p>
