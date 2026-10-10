@@ -2601,3 +2601,142 @@ body {
     animation: none;
   }
 }
+
+/* Critical device-fit correction: narrow landscape becomes a deliberate two-row layout. */
+.auth-topbar {
+  min-width: 0;
+}
+.auth-brand {
+  min-width: 0;
+  white-space: nowrap;
+}
+.auth-brand strong {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.auth-topbar-status {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.auth-layout {
+  min-width: 0;
+  overflow-x: hidden;
+}
+@media (orientation: landscape) and (max-width: 1050px) {
+  .auth-topbar {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  .auth-brand > span:last-child {
+    display: none;
+  }
+  .auth-brand {
+    gap: 9px;
+    letter-spacing: 0.12em;
+  }
+  .auth-brand i {
+    height: 20px;
+  }
+  .auth-topbar-status {
+    font-size: 8px;
+    letter-spacing: 0.06em;
+  }
+  .auth-layout {
+    height: auto;
+    min-height: calc(
+      100dvh - 52px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+    );
+    max-height: calc(
+      100dvh - 52px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+    );
+    grid-template-columns: minmax(135px, 0.56fr) minmax(300px, 1.44fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: center;
+    align-content: center;
+    gap: 12px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    overflow-y: auto;
+  }
+  .auth-identity-panel {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .auth-card {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .auth-security-panel {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+  }
+}
+@media (orientation: landscape) and (max-width: 760px) {
+  .auth-layout {
+    grid-template-columns: 120px minmax(280px, 1fr);
+    gap: 9px;
+  }
+  .auth-identity-panel {
+    padding: 2px;
+  }
+  .auth-energy-orb {
+    width: 105px;
+    margin-bottom: 7px;
+  }
+  .auth-wordmark {
+    font-size: 22px;
+    letter-spacing: 0.2em;
+  }
+  .auth-tagline,
+  .auth-supporting,
+  .auth-shortcuts {
+    display: none;
+  }
+  .auth-card {
+    padding: 12px 18px;
+  }
+  .auth-security-panel {
+    grid-template-columns: auto minmax(130px, 1.4fr) minmax(105px, 1fr) minmax(
+        105px,
+        1fr
+      );
+  }
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  .auth-layout {
+    min-height: calc(100dvh - 48px);
+    max-height: calc(100dvh - 48px);
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .auth-topbar {
+    height: 48px;
+    min-height: 48px;
+  }
+  .auth-card {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .auth-security-panel {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+/* Remove the last traces of the toy-like bloom while retaining state animation. */
+.auth-energy-orb {
+  box-shadow:
+    0 0 0 1px rgba(91, 194, 255, 0.2),
+    0 0 22px rgba(42, 135, 255, 0.24),
+    inset -10px -12px 22px rgba(115, 64, 190, 0.12);
+}
+.auth-energy-orb::after {
+  opacity: 0.55;
+}
