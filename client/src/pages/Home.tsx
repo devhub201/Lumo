@@ -109,7 +109,7 @@ const formatDate = (value: Date | string) =>
 export default function Home() {
   const nativePlatform = Capacitor.isNativePlatform();
   const [authState, setAuthState] = useState<
-    "checking" | "ready" | "authenticated" | "failed" | "recovery"
+    "checking" | "ready" | "authenticated" | "success" | "failed" | "recovery"
   >(nativePlatform ? "checking" : "authenticated");
   const [biometricAvailability, setBiometricAvailability] =
     useState<BiometricAvailability | null>(null);
@@ -473,8 +473,9 @@ export default function Home() {
     setAuthMessage("Waiting for the device biometric prompt…");
     const result = await verifyBiometric();
     if (result.verified) {
-      setAuthState("authenticated");
       setAuthMessage("Identity verified for this session.");
+      setAuthState("success");
+      window.setTimeout(() => setAuthState("authenticated"), 750);
       return;
     }
     setAuthState("failed");
@@ -1255,7 +1256,7 @@ function AuthenticationScreen({
   onAuthenticate,
   onRecovery,
 }: {
-  state: "checking" | "ready" | "failed" | "recovery";
+  state: "checking" | "ready" | "success" | "failed" | "recovery";
   availability: BiometricAvailability | null;
   message: string;
   onAuthenticate: () => void;
@@ -1310,7 +1311,7 @@ function AuthenticationScreen({
           </h1>
           <p className="auth-message">{message}</p>
           <div
-            className={`auth-biometric-visual ${busy ? "auth-pulsing" : ""} ${state === "failed" || state === "recovery" ? "auth-unavailable" : ""}`}
+            className={`auth-biometric-visual auth-orb-${state} ${busy ? "auth-pulsing" : ""} ${state === "failed" || state === "recovery" ? "auth-unavailable" : ""}`}
             aria-hidden="true"
           >
             <LockKeyhole size={48} />
@@ -1324,14 +1325,18 @@ function AuthenticationScreen({
           >
             {busy ? (
               <Loader2 size={18} className="spin" />
+            ) : state === "success" ? (
+              <Check size={18} />
             ) : (
               <Fingerprint size={18} />
             )}
             {busy
               ? "CHECKING DEVICE…"
-              : verifiedCapability
-                ? "AUTHENTICATE WITH BIOMETRICS"
-                : "BIOMETRICS UNAVAILABLE"}
+              : state === "success"
+                ? "IDENTITY VERIFIED"
+                : verifiedCapability
+                  ? "AUTHENTICATE WITH BIOMETRICS"
+                  : "BIOMETRICS UNAVAILABLE"}
           </button>
           <button
             className="auth-recovery-button"
