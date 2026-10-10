@@ -6,6 +6,40 @@ export type BiometricResult =
   | { supported: false; verified: false; reason: string }
   | { supported: true; verified: false; reason: string };
 
+export type BiometricAvailability = {
+  supported: boolean;
+  reason?: string;
+  authenticationType?: string;
+};
+
+export async function getBiometricAvailability(): Promise<BiometricAvailability> {
+  if (!Capacitor.isNativePlatform()) {
+    return {
+      supported: false,
+      reason:
+        "Native biometric authentication is available only in the Android app.",
+    };
+  }
+  try {
+    const availability = await NativeBiometric.isAvailable();
+    return availability.isAvailable
+      ? {
+          supported: true,
+          authenticationType: String(availability.biometryType),
+        }
+      : {
+          supported: false,
+          reason:
+            "No enrolled biometric credential is available on this device.",
+        };
+  } catch {
+    return {
+      supported: false,
+      reason: "The device biometric capability could not be checked.",
+    };
+  }
+}
+
 export async function verifyBiometric(): Promise<BiometricResult> {
   if (!Capacitor.isNativePlatform()) {
     return {

@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Sparkles,
   Fingerprint,
+  LockKeyhole,
   Terminal,
 } from "lucide-react";
 import {
@@ -48,7 +49,12 @@ import { detectModeCommand } from "../../../server/lumo/interaction/commands";
 import type { InteractionMode } from "../../../server/lumo/interaction/contracts";
 import type { TeachingSession } from "../../../server/lumo/teaching/contracts";
 import { createSpeechOutput, createVoiceInput, VoiceError } from "@/lib/voice";
-import { verifyBiometric } from "@/lib/biometric";
+import {
+  getBiometricAvailability,
+  verifyBiometric,
+  type BiometricAvailability,
+} from "@/lib/biometric";
+import { Capacitor } from "@capacitor/core";
 
 type MemoryKind = "preference" | "fact" | "project" | "summary" | "knowledge";
 
@@ -101,6 +107,15 @@ const formatDate = (value: Date | string) =>
   );
 
 export default function Home() {
+  const nativePlatform = Capacitor.isNativePlatform();
+  const [authState, setAuthState] = useState<
+    "checking" | "ready" | "authenticated" | "failed" | "recovery"
+  >(nativePlatform ? "checking" : "authenticated");
+  const [biometricAvailability, setBiometricAvailability] =
+    useState<BiometricAvailability | null>(null);
+  const [authMessage, setAuthMessage] = useState(
+    "Identity verification required to continue."
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [pendingText, setPendingText] = useState<string | null>(null);
@@ -159,6 +174,19 @@ export default function Home() {
   const performanceSummaryQuery = trpc.lumo.performanceSummary.useQuery();
   const githubCatalogQuery = trpc.lumo.githubCatalog.useQuery();
   const gmailCatalogQuery = trpc.lumo.gmailCatalog.useQuery();
+
+  useEffect(() => {
+    if (!nativePlatform) return;
+    void getBiometricAvailability().then(availability => {
+      setBiometricAvailability(availability);
+      setAuthState(availability.supported ? "ready" : "failed");
+      setAuthMessage(
+        availability.supported
+          ? "Identity verification required to continue."
+          : (availability.reason ?? "Biometric authentication is unavailable.")
+      );
+    });
+  }, [nativePlatform]);
 
   useEffect(() => {
     voiceInputRef.current = createVoiceInput();
@@ -440,6 +468,36 @@ export default function Home() {
     );
   };
 
+  const authenticateEntry = async () => {
+    setAuthState("checking");
+    setAuthMessage("Waiting for the device biometric prompt…");
+    const result = await verifyBiometric();
+    if (result.verified) {
+      setAuthState("authenticated");
+      setAuthMessage("Identity verified for this session.");
+      return;
+    }
+    setAuthState("failed");
+    setAuthMessage(result.reason);
+  };
+
+  if (nativePlatform && authState !== "authenticated") {
+    return (
+      <AuthenticationScreen
+        state={authState}
+        availability={biometricAvailability}
+        message={authMessage}
+        onAuthenticate={() => void authenticateEntry()}
+        onRecovery={() => {
+          setAuthState("recovery");
+          setAuthMessage(
+            "Recovery is not configured for this installation. No password, PIN, or recovery code is accepted."
+          );
+        }}
+      />
+    );
+  }
+
   return (
     <div className="lumo-shell">
       <header className="lumo-topbar">
@@ -630,6 +688,106 @@ export default function Home() {
               </Button>
             </div>
           </div>
+
+          <section className="workspace-grid" aria-label="Live Workspace">
+            <div className="live-workspace-card">
+              <div className="workspace-card-heading">
+                <div>
+                  <p className="eyebrow">live workspace</p>
+                  <strong>
+                    {pendingText
+                      ? "Executing LUMO task"
+                      : "Workspace standing by"}
+                  </strong>
+                </div>
+                <span className="workspace-live-indicator">
+                  <span /> {pendingText ? "active" : "ready"}
+                </span>
+              </div>
+              <div className="task-progress-track" aria-label="Task progress">
+                <span style={{ width: pendingText ? "58%" : "100%" }} />
+              </div>
+              <div className="activity-timeline">
+                <div className="activity-item complete">
+                  <span>01</span>
+                  <div>
+                    <strong>Input channel</strong>
+                    <small>{interactionMode} interface armed</small>
+                  </div>
+                </div>
+                <div
+                  className={`activity-item ${pendingText ? "active" : "complete"}`}
+                >
+                  <span>02</span>
+                  <div>
+                    <strong>Context assembly</strong>
+                    <small>
+                      {pendingText
+                        ? "retrieving memory and workspace context"
+                        : `${messages.length} conversation messages available`}
+                    </small>
+                  </div>
+                </div>
+                <div
+                  className={`activity-item ${pendingText ? "queued" : "complete"}`}
+                >
+                  <span>03</span>
+                  <div>
+                    <strong>Response synthesis</strong>
+                    <small>
+                      {pendingText
+                        ? "provider task in progress"
+                        : "ready for the next instruction"}
+                    </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="quick-actions-card">
+              <div className="workspace-card-heading">
+                <div>
+                  <p className="eyebrow">command deck</p>
+                  <strong>Quick actions</strong>
+                </div>
+                <Sparkles size={16} />
+              </div>
+              <div className="quick-action-grid">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft(
+                      "Plan my next priorities and show them as a focused checklist"
+                    )
+                  }
+                >
+                  <Check size={14} /> Plan priorities
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft(
+                      "Research this topic and summarize the trusted sources"
+                    )
+                  }
+                >
+                  <Activity size={14} /> Research
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startVoiceListening()}
+                >
+                  <Mic size={14} /> Voice input
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openCamera()}
+                  disabled={cameraOpen}
+                >
+                  <Camera size={14} /> Live vision
+                </button>
+              </div>
+            </div>
+          </section>
 
           <div className="message-stage">
             {!selectedId && !pendingText && (
@@ -1086,6 +1244,164 @@ function DiagnosticRow({
     <div className="diagnostic-row">
       <span>{label}</span>
       <strong className={`${tone} ${mono ? "mono" : ""}`}>{value}</strong>
+    </div>
+  );
+}
+
+function AuthenticationScreen({
+  state,
+  availability,
+  message,
+  onAuthenticate,
+  onRecovery,
+}: {
+  state: "checking" | "ready" | "failed" | "recovery";
+  availability: BiometricAvailability | null;
+  message: string;
+  onAuthenticate: () => void;
+  onRecovery: () => void;
+}) {
+  const busy = state === "checking";
+  const verifiedCapability = availability?.supported === true;
+  return (
+    <div className="auth-screen">
+      <header className="auth-topbar">
+        <div className="auth-brand">
+          <span className="auth-brand-orb">
+            <span />
+          </span>
+          <strong>LUMO</strong>
+          <i /> <span>YOUR INTELLIGENCE. YOUR WORLD.</span>
+        </div>
+        <span className="auth-topbar-status">
+          <span /> native security boundary
+        </span>
+      </header>
+      <div className="auth-layout">
+        <section className="auth-identity-panel">
+          <div className="auth-energy-orb" aria-hidden="true">
+            <span />
+          </div>
+          <p className="auth-wordmark">LUMO</p>
+          <p className="auth-tagline">YOUR INTELLIGENCE. YOUR WORLD.</p>
+          <p className="auth-supporting">
+            A personal intelligence workspace for thinking, creating, solving,
+            and exploring — all in one place.
+          </p>
+          <div
+            className="auth-shortcuts"
+            aria-label="Available workspace areas"
+          >
+            <span>
+              <Sparkles size={14} /> Chat
+            </span>
+            <span>
+              <Activity size={14} /> Live Workspace
+            </span>
+            <span>
+              <Camera size={14} /> Vision
+            </span>
+          </div>
+        </section>
+        <section className={`auth-card auth-state-${state}`} aria-live="polite">
+          <p className="auth-eyebrow">— secure access —</p>
+          <h1>
+            WELCOME BACK, <strong>PETER</strong>
+          </h1>
+          <p className="auth-message">{message}</p>
+          <div
+            className={`auth-biometric-visual ${busy ? "auth-pulsing" : ""} ${state === "failed" || state === "recovery" ? "auth-unavailable" : ""}`}
+            aria-hidden="true"
+          >
+            <LockKeyhole size={48} />
+            <span />
+          </div>
+          <button
+            className="auth-primary-button"
+            type="button"
+            onClick={onAuthenticate}
+            disabled={busy || !verifiedCapability}
+          >
+            {busy ? (
+              <Loader2 size={18} className="spin" />
+            ) : (
+              <Fingerprint size={18} />
+            )}
+            {busy
+              ? "CHECKING DEVICE…"
+              : verifiedCapability
+                ? "AUTHENTICATE WITH BIOMETRICS"
+                : "BIOMETRICS UNAVAILABLE"}
+          </button>
+          <button
+            className="auth-recovery-button"
+            type="button"
+            onClick={onRecovery}
+            disabled={busy}
+          >
+            <LockKeyhole size={16} /> USE RECOVERY METHOD{" "}
+            <ChevronRight size={16} />
+          </button>
+          <p className="auth-privacy">
+            <ShieldCheck size={14} /> Biometric data stays inside the device.
+            LUMO receives only the verification result.
+          </p>
+        </section>
+        <aside className="auth-security-panel">
+          <div className="auth-panel-title">
+            <ShieldCheck size={18} />
+            <span>SECURITY STATUS</span>
+            <b />
+          </div>
+          <div className="auth-status-card">
+            <span className="auth-status-icon">
+              <ShieldCheck size={18} />
+            </span>
+            <div>
+              <strong>
+                {busy
+                  ? "Checking capability"
+                  : verifiedCapability
+                    ? "Awaiting verification"
+                    : "Unavailable"}
+              </strong>
+              <small>{busy ? "Querying native device" : message}</small>
+            </div>
+          </div>
+          <div className="auth-fact">
+            <Fingerprint size={21} />
+            <div>
+              <span>Biometric availability</span>
+              <strong>
+                {busy
+                  ? "checking…"
+                  : verifiedCapability
+                    ? "available"
+                    : "unavailable"}
+              </strong>
+            </div>
+          </div>
+          <div className="auth-fact">
+            <LockKeyhole size={21} />
+            <div>
+              <span>Protected entry</span>
+              <strong>native prompt required</strong>
+            </div>
+          </div>
+          <div className="auth-fact">
+            <Activity size={21} />
+            <div>
+              <span>Session state</span>
+              <strong>
+                {state === "recovery" ? "recovery unavailable" : state}
+              </strong>
+            </div>
+          </div>
+          <div className="auth-quote">
+            “Your privacy is part of the architecture.”
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
