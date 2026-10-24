@@ -1,6 +1,10 @@
 import { nanoid } from "nanoid";
 import type { PermissionManager } from "../security/permissions";
-import { requireSensitiveAuthorization } from "../security/safety";
+import {
+  isolatedSensitiveGrantService,
+  type SensitiveActionAuthorization,
+  type SensitiveGrantService,
+} from "../security/grants";
 import {
   runtimeCommandSchema,
   runtimeTargetSchema,
@@ -13,7 +17,8 @@ export class RuntimeManager {
   private targets = new Map<string, RuntimeTarget>();
   constructor(
     private readonly permissions: PermissionManager,
-    private readonly provider: RuntimeProvider
+    private readonly provider: RuntimeProvider,
+    private readonly grants: SensitiveGrantService = isolatedSensitiveGrantService
   ) {}
   register(target: RuntimeTarget) {
     const parsed = runtimeTargetSchema.parse(target);
@@ -30,12 +35,7 @@ export class RuntimeManager {
     targetId: string;
     command: unknown;
     ownerKey: string;
-    authorization?: {
-      authorized: boolean;
-      action: string;
-      reason: string;
-      issuedAt: number;
-    };
+    authorization?: SensitiveActionAuthorization;
     signal?: AbortSignal;
   }): Promise<RuntimeResult> {
     const target = this.targets.get(input.targetId);
@@ -65,7 +65,12 @@ export class RuntimeManager {
     if (
       !target.authorized ||
       !this.permissions.evaluate(input.ownerKey, "terminal_runtime").allowed ||
-      !requireSensitiveAuthorization(input.authorization, "runtime_command")
+      !(await this.grants.consume(
+        input.ownerKey,
+        input.authorization,
+        "runtime_command",
+        input.targetId
+      ))
     )
       return {
         executionId: nanoid(12),

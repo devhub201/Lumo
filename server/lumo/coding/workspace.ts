@@ -11,7 +11,11 @@ import {
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { PermissionManager } from "../security/permissions";
-import { requireSensitiveAuthorization } from "../security/safety";
+import {
+  isolatedSensitiveGrantService,
+  type SensitiveActionAuthorization,
+  type SensitiveGrantService,
+} from "../security/grants";
 import {
   codeContentSchema,
   projectNameSchema,
@@ -41,7 +45,10 @@ const language = (file: string) =>
     html: "html",
   })[path.extname(file).slice(1).toLowerCase()] || "text";
 export class CodeWorkspaceManager {
-  constructor(private readonly permissions: PermissionManager) {}
+  constructor(
+    private readonly permissions: PermissionManager,
+    private readonly grants: SensitiveGrantService = isolatedSensitiveGrantService
+  ) {}
   private projectRoot(owner: string, id: string) {
     if (!/^project_[A-Za-z0-9_-]{8,40}$/.test(id))
       throw new Error("Invalid project identity.");
@@ -55,12 +62,22 @@ export class CodeWorkspaceManager {
       throw new Error("Workspace path escapes project root.");
     return target;
   }
-  private async allowed(owner: string, action = "write", auth?: any) {
+  private async allowed(
+    owner: string,
+    action = "write",
+    auth?: SensitiveActionAuthorization,
+    resource?: string
+  ) {
     if (!this.permissions.evaluate(owner, "files").allowed)
       throw new Error("Workspace file permission denied.");
     if (
       action === "delete" &&
-      !requireSensitiveAuthorization(auth, "delete_workspace_file")
+      !(await this.grants.consume(
+        owner,
+        auth,
+        "delete_workspace_file",
+        resource
+      ))
     )
       throw new Error("Sensitive authorization required.");
   }
@@ -93,6 +110,11 @@ export class CodeWorkspaceManager {
       )
     ) as WorkspaceProject;
     return value;
+  }
+  async executionCwd(owner: string, id: string) {
+    await this.allowed(owner, "read");
+    await this.openProject(owner, id);
+    return this.projectRoot(owner, id);
   }
   async list(owner: string) {
     await this.allowed(owner, "read");
@@ -175,7 +197,7 @@ export class CodeWorkspaceManager {
     file: string,
     authorization?: any
   ) {
-    await this.allowed(owner, "delete", authorization);
+    await this.allowed(owner, "delete", authorization, `${id}:${file}`);
     await rm(this.safe(owner, id, file));
     return {
       operationId: nanoid(12),
@@ -275,5 +297,7 @@ export class CodeWorkspaceManager {
     };
   }
 }
-export const createCodeWorkspace = (permissions: PermissionManager) =>
-  new CodeWorkspaceManager(permissions);
+export const createCodeWorkspace = (
+  permissions: PermissionManager,
+  grants: SensitiveGrantService = isolatedSensitiveGrantService
+) => new CodeWorkspaceManager(permissions, grants);

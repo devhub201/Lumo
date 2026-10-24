@@ -17,13 +17,4 @@ export const looksLikeInstructionInjection = (value: string) =>
   /ignore (?:all|previous|earlier) instructions|system message|developer message|reveal secrets|execute this command/i.test(
     value
   );
-export type SensitiveActionAuthorization = {
-  authorized: boolean;
-  action: string;
-  reason: string;
-  issuedAt: number;
-};
-export const requireSensitiveAuthorization = (
-  authorization: SensitiveActionAuthorization | undefined,
-  action: string
-) => Boolean(authorization?.authorized && authorization.action === action);
+export type { SensitiveActionAuthorization } from "./grants";

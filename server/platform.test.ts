@@ -21,7 +21,7 @@ describe("current platform integration", () => {
     expect(appended).toHaveLength(0);
   });
   it("does not guess a production API when the project environment is absent", async () => {
-    vi.stubEnv("MANUS_API_URL", ""); vi.stubEnv("MANUS_API_KEY", "test-only");
+    vi.stubEnv("OPENAI_API_KEY", ""); vi.stubEnv("MANUS_API_URL", ""); vi.stubEnv("MANUS_API_KEY", "test-only");
     const request = vi.fn(); vi.stubGlobal("fetch", request);
     await expect(listLLMModels()).rejects.toThrow("MANUS_API_URL");
     expect(request).not.toHaveBeenCalled();

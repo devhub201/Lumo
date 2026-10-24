@@ -114,3 +114,141 @@ export const lumoSettings = mysqlTable(
     ),
   })
 );
+
+export const lumoActionGrants = mysqlTable(
+  "lumo_action_grants",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    ownerKey: varchar("ownerKey", { length: 64 }).notNull(),
+    action: varchar("action", { length: 120 }).notNull(),
+    resourceHash: varchar("resourceHash", { length: 64 }),
+    tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+    nonce: varchar("nonce", { length: 64 }).notNull().unique(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    consumedAt: timestamp("consumedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    consumeIdx: index("lumo_action_grants_consume_idx").on(
+      table.ownerKey,
+      table.action,
+      table.tokenHash,
+      table.expiresAt
+    ),
+  })
+);
+
+export const lumoActionAudits = mysqlTable(
+  "lumo_action_audits",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    ownerKey: varchar("ownerKey", { length: 64 }).notNull(),
+    action: varchar("action", { length: 120 }).notNull(),
+    resourceHash: varchar("resourceHash", { length: 64 }),
+    grantId: varchar("grantId", { length: 64 }),
+    outcome: mysqlEnum("outcome", [
+      "issued",
+      "consumed",
+      "rejected",
+      "expired",
+      "replayed",
+    ]).notNull(),
+    reason: varchar("reason", { length: 300 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    ownerCreatedIdx: index("lumo_action_audits_owner_created_idx").on(
+      table.ownerKey,
+      table.createdAt
+    ),
+  })
+);
+
+export const lumoOwnerMigrationRuns = mysqlTable("lumo_owner_migration_runs", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  legacyOwnerKey: varchar("legacyOwnerKey", { length: 64 }).notNull(),
+  targetOwnerKey: varchar("targetOwnerKey", { length: 64 }).notNull(),
+  verified: int("verified").notNull(),
+  mode: mysqlEnum("mode", ["dry_run", "apply", "rollback"]).notNull(),
+  status: mysqlEnum("status", ["planned", "applied", "rolled_back", "blocked"]).notNull(),
+  report: json("report").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export const lumoOwnerMigrationItems = mysqlTable(
+  "lumo_owner_migration_items",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    runId: varchar("runId", { length: 64 }).notNull(),
+    sourceKind: varchar("sourceKind", { length: 80 }).notNull(),
+    recordId: varchar("recordId", { length: 255 }).notNull(),
+    beforeChecksum: varchar("beforeChecksum", { length: 64 }).notNull(),
+    afterChecksum: varchar("afterChecksum", { length: 64 }),
+    restoredAt: timestamp("restoredAt"),
+  },
+  table => ({
+    runItemUnique: uniqueIndex("lumo_owner_migration_run_item_unique").on(
+      table.runId,
+      table.sourceKind,
+      table.recordId
+    ),
+  })
+);
+
+export const lumoProviderConnections = mysqlTable(
+  "lumo_provider_connections",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    ownerKey: varchar("ownerKey", { length: 64 }).notNull(),
+    provider: mysqlEnum("provider", ["github", "google"]).notNull(),
+    providerAccountId: varchar("providerAccountId", { length: 255 }).notNull(),
+    providerLogin: varchar("providerLogin", { length: 320 }),
+    accessTokenCiphertext: text("accessTokenCiphertext").notNull(),
+    refreshTokenCiphertext: text("refreshTokenCiphertext"),
+    tokenKeyVersion: int("tokenKeyVersion").notNull(),
+    accessTokenExpiresAt: timestamp("accessTokenExpiresAt"),
+    scopes: json("scopes").$type<string[]>().notNull(),
+    state: mysqlEnum("state", ["connected", "expired", "revoked", "error"])
+      .notNull()
+      .default("connected"),
+    lastRefreshAt: timestamp("lastRefreshAt"),
+    lastValidatedAt: timestamp("lastValidatedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    ownerProviderUnique: uniqueIndex("lumo_provider_connections_owner_provider_unique").on(
+      table.ownerKey,
+      table.provider
+    ),
+    ownerStateIdx: index("lumo_provider_connections_owner_state_idx").on(
+      table.ownerKey,
+      table.state
+    ),
+  })
+);
+
+export const lumoOAuthStates = mysqlTable(
+  "lumo_oauth_states",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    stateHash: varchar("stateHash", { length: 64 }).notNull().unique(),
+    ownerKey: varchar("ownerKey", { length: 64 }).notNull(),
+    provider: mysqlEnum("provider", ["github", "google"]).notNull(),
+    pkceVerifierCiphertext: text("pkceVerifierCiphertext"),
+    keyVersion: int("keyVersion"),
+    redirectUri: varchar("redirectUri", { length: 2048 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    consumedAt: timestamp("consumedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    consumeIdx: index("lumo_oauth_states_consume_idx").on(
+      table.stateHash,
+      table.provider,
+      table.expiresAt
+    ),
+    ownerIdx: index("lumo_oauth_states_owner_idx").on(table.ownerKey),
+  })
+);

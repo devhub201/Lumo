@@ -1,7 +1,8 @@
+import type { SensitiveActionAuthorization } from "../security/grants";
 import {
-  requireSensitiveAuthorization,
-  type SensitiveActionAuthorization,
-} from "../security/safety";
+  SensitiveGrantService,
+  isolatedSensitiveGrantService,
+} from "../security/grants";
 import type { PermissionManager } from "../security/permissions";
 import type {
   GithubChange,
@@ -11,6 +12,7 @@ import type {
   GithubAccount,
 } from "./contracts";
 import { nanoid } from "nanoid";
+type GithubProviderSource = GithubProvider | ((owner: string) => GithubProvider);
 const ok = <T>(
   operation: GithubOperation,
   requestId: string,
@@ -52,17 +54,25 @@ const fail = <T>(
 export class GithubManager {
   constructor(
     private readonly permissions: PermissionManager,
-    private readonly provider: GithubProvider
+    private readonly provider: GithubProviderSource,
+    private readonly grants: SensitiveGrantService = isolatedSensitiveGrantService
   ) {}
+  private providerFor(owner: string) {
+    return typeof this.provider === "function"
+      ? this.provider(owner)
+      : this.provider;
+  }
   private allowed(owner: string) {
     if (!this.permissions.evaluate(owner, "external_integrations").allowed)
       throw new Error("permission_denied");
   }
-  private sensitive(
+  private async sensitive(
+    owner: string,
     auth: SensitiveActionAuthorization | undefined,
-    action: string
+    action: string,
+    resource: string
   ) {
-    if (!requireSensitiveAuthorization(auth, action))
+    if (!(await this.grants.consume(owner, auth, action, resource)))
       throw new Error("authorization_required");
   }
   async account(owner: string, requestId = nanoid()) {
@@ -71,7 +81,7 @@ export class GithubManager {
       return ok(
         "list_repositories",
         requestId,
-        await this.provider.getAccount()
+        await this.providerFor(owner).getAccount()
       );
     } catch (e) {
       return fail<GithubAccount>("list_repositories", requestId, e);
@@ -83,7 +93,7 @@ export class GithubManager {
       return ok(
         "list_repositories",
         requestId,
-        await this.provider.listRepositories()
+        await this.providerFor(owner).listRepositories()
       );
     } catch (e) {
       return fail("list_repositories", requestId, e);
@@ -99,7 +109,7 @@ export class GithubManager {
       return ok(
         "inspect_repository",
         requestId,
-        await this.provider.inspectRepository(repository.owner, repository.name)
+        await this.providerFor(owner).inspectRepository(repository.owner, repository.name)
       );
     } catch (e) {
       return fail("inspect_repository", requestId, e);
@@ -115,7 +125,7 @@ export class GithubManager {
       return ok(
         "list_branches",
         requestId,
-        await this.provider.listBranches(repository.owner, repository.name)
+        await this.providerFor(owner).listBranches(repository.owner, repository.name)
       );
     } catch (e) {
       return fail("list_branches", requestId, e);
@@ -133,7 +143,7 @@ export class GithubManager {
       return ok(
         "read_file",
         requestId,
-        await this.provider.readFile(
+        await this.providerFor(owner).readFile(
           input.owner,
           input.name,
           input.branch,
@@ -152,11 +162,11 @@ export class GithubManager {
   ) {
     try {
       this.allowed(owner);
-      this.sensitive(auth, "github.create_branch");
+      await this.sensitive(owner, auth, "github.create_branch", `${input.owner}/${input.name}/${input.branch}`);
       return ok(
         "create_branch",
         requestId,
-        await this.provider.createBranch(
+        await this.providerFor(owner).createBranch(
           input.owner,
           input.name,
           input.branch,
@@ -183,13 +193,13 @@ export class GithubManager {
   ) {
     try {
       this.allowed(owner);
-      this.sensitive(auth, "github.update_file");
+      await this.sensitive(owner, auth, "github.update_file", `${input.owner}/${input.name}/${input.branch}/${input.path}`);
       if (input.path.includes("..") || input.path.startsWith("/"))
         throw new Error("security_rejected");
       return ok(
         "update_file",
         requestId,
-        await this.provider.updateFile(input)
+        await this.providerFor(owner).updateFile(input)
       );
     } catch (e) {
       return fail("update_file", requestId, e);
@@ -209,7 +219,7 @@ export class GithubManager {
   ) {
     try {
       this.allowed(owner);
-      this.sensitive(auth, "github.create_commit");
+      await this.sensitive(owner, auth, "github.create_commit", `${input.owner}/${input.name}/${input.branch}`);
       if (
         input.changes.some(c => c.path.includes("..") || c.path.startsWith("/"))
       )
@@ -217,7 +227,7 @@ export class GithubManager {
       return ok(
         "create_commit",
         requestId,
-        await this.provider.createCommit(input)
+        await this.providerFor(owner).createCommit(input)
       );
     } catch (e) {
       return fail("create_commit", requestId, e);
@@ -233,7 +243,7 @@ export class GithubManager {
       return ok(
         "pull_requests",
         requestId,
-        await this.provider.listPullRequests(repository.owner, repository.name)
+        await this.providerFor(owner).listPullRequests(repository.owner, repository.name)
       );
     } catch (e) {
       return fail("pull_requests", requestId, e);
@@ -247,11 +257,16 @@ export class GithubManager {
   ) {
     try {
       this.allowed(owner);
-      this.sensitive(auth, "github.create_pull_request");
+      await this.sensitive(
+        owner,
+        auth,
+        "github.create_pull_request",
+        `${input.sourceBranch}->${input.targetBranch}:${input.title}`
+      );
       return ok(
         "create_pull_request",
         requestId,
-        await this.provider.createPullRequest(input)
+        await this.providerFor(owner).createPullRequest(input)
       );
     } catch (e) {
       return fail("create_pull_request", requestId, e);
@@ -267,7 +282,7 @@ export class GithubManager {
       return ok(
         "issues",
         requestId,
-        await this.provider.listIssues(repository.owner, repository.name)
+        await this.providerFor(owner).listIssues(repository.owner, repository.name)
       );
     } catch (e) {
       return fail("issues", requestId, e);
@@ -281,11 +296,11 @@ export class GithubManager {
   ) {
     try {
       this.allowed(owner);
-      this.sensitive(auth, "github.create_issue");
+      await this.sensitive(owner, auth, "github.create_issue", `${input.owner}/${input.name}`);
       return ok(
         "create_issue",
         requestId,
-        await this.provider.createIssue(input)
+        await this.providerFor(owner).createIssue(input)
       );
     } catch (e) {
       return fail("create_issue", requestId, e);

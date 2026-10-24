@@ -1,6 +1,13 @@
 import type { CookieOptions, Request } from "express";
+import { ENV } from "./env";
 
 export function getSessionCookieOptions(_req: Request): CookieOptions {
-  // Preview is public HTTPS in a cross-site frame even when the upstream request is HTTP.
-  return { httpOnly: true, path: "/", sameSite: "none", secure: true };
+  // Production is same-origin behind the LUMO frontend proxy; Lax limits cross-site POSTs.
+  // Non-production preview frames may still need a cross-site cookie.
+  return {
+    httpOnly: true,
+    path: "/",
+    sameSite: ENV.isProduction ? "lax" : "none",
+    secure: true,
+  };
 }

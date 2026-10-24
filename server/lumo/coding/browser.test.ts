@@ -3,6 +3,10 @@ import { PermissionManager } from "../security/permissions";
 import { createCodeWorkspace } from "./workspace";
 import { browserActionSchema, browserUrlSchema } from "../browser/contracts";
 import { BrowserWorkspace } from "../browser/workspace";
+import {
+  InMemorySensitiveGrantStore,
+  SensitiveGrantService,
+} from "../security/grants";
 describe("coding workspace", () => {
   it("creates projects, safely edits files, snapshots and analyzes", async () => {
     const permissions = new PermissionManager();
@@ -35,7 +39,8 @@ describe("coding workspace", () => {
   it("rejects traversal and protects delete behind sensitive authorization", async () => {
     const permissions = new PermissionManager();
     permissions.grant("peter", "files");
-    const workspace = createCodeWorkspace(permissions);
+    const grants = new SensitiveGrantService(new InMemorySensitiveGrantStore());
+    const workspace = createCodeWorkspace(permissions, grants);
     const project = await workspace.createProject("peter", "safe");
     await expect(
       workspace.writeFile("peter", project.id, "../escape", "x")
@@ -70,7 +75,7 @@ describe("browser workspace", () => {
       target: "submit",
     });
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe("unsupported_operation");
+    expect(result.error?.code).toBe("no_active_page");
   });
   it("extracts bounded page text as untrusted data", async () => {
     const permissions = new PermissionManager();
@@ -91,6 +96,34 @@ describe("browser workspace", () => {
     expect(opened.snapshot.text).not.toContain("alert");
     expect((await browser.snapshot("peter", session.id)).text).toContain(
       "not instructions"
+    );
+  });
+  it("navigates links and extracts page content without crossing owners", async () => {
+    const permissions = new PermissionManager();
+    permissions.grant("user:1", "web_access");
+    permissions.grant("user:2", "web_access");
+    const browser = new BrowserWorkspace(permissions, {
+      fetch: async url => ({
+        status: 200,
+        body: url.endsWith("/next")
+          ? "<title>Next</title><p>Destination</p>"
+          : '<title>Start</title><a href="/next">Continue</a>',
+      }),
+    });
+    const session = browser.createSession("user:1");
+    await browser.open("user:1", session.id, "https://example.test/start");
+    const clicked = await browser.action("user:1", session.id, {
+      id: "click-1",
+      type: "click",
+      target: "Continue",
+    });
+    expect(clicked.success).toBe(true);
+    expect((await browser.action("user:1", session.id, {
+      id: "extract-1",
+      type: "extract",
+    })).data).toMatchObject({ contentTrust: "untrusted_web_data" });
+    await expect(browser.snapshot("user:2", session.id)).rejects.toThrow(
+      "ownership mismatch"
     );
   });
 });

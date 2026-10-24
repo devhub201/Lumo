@@ -90,6 +90,7 @@ const extractDocx = (buffer: Buffer) => {
   const xml = execFileSync("unzip", ["-p", "/dev/stdin", "word/document.xml"], {
     input: buffer,
     maxBuffer: MAX_FILE_BYTES * 3,
+    timeout: 5_000,
   }).toString("utf8");
   return xml
     .replace(/<w:tab\s*\/?\s*>/g, "\t")
@@ -105,6 +106,7 @@ const extractPdf = (buffer: Buffer) =>
   execFileSync("pdftotext", ["-layout", "-enc", "UTF-8", "-", "-"], {
     input: buffer,
     maxBuffer: MAX_FILE_BYTES * 3,
+    timeout: 5_000,
   })
     .toString("utf8")
     .trim();

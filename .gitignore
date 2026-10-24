@@ -1,5 +1,9 @@
 # Dependencies
 **/node_modules
+**/.output/
+**/.wrangler/
+.lumo-code-workspaces/
+.manus-logs/
 .pnpm-store/
 
 # Build outputs

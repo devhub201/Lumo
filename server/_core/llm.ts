@@ -19,7 +19,12 @@ export type FileContent = {
   type: "file_url";
   file_url: {
     url: string;
-    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4" ;
+    mime_type?:
+      | "audio/mpeg"
+      | "audio/wav"
+      | "application/pdf"
+      | "audio/mp4"
+      | "video/mp4";
   };
 };
 
@@ -212,17 +217,26 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const platformApiBase = () => {
-  if (!ENV.forgeApiUrl.trim()) throw new Error("MANUS_API_URL is not configured");
+const isOpenAiConfigured = () => Boolean(ENV.openAiApiKey.trim());
+const providerApiBase = () => {
+  if (isOpenAiConfigured()) return ENV.openAiBaseUrl;
+  if (!ENV.forgeApiUrl.trim())
+    throw new Error("OPENAI_API_KEY or MANUS_API_URL is not configured");
   return ENV.forgeApiUrl.replace(/\/$/, "");
 };
-const resolveApiUrl = () => `${platformApiBase()}/v1/chat/completions`;
+const resolveApiUrl = () =>
+  isOpenAiConfigured()
+    ? `${providerApiBase()}/chat/completions`
+    : `${providerApiBase()}/v1/chat/completions`;
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("MANUS_API_KEY is not configured");
+  if (!isOpenAiConfigured() && !ENV.forgeApiKey) {
+    throw new Error("OPENAI_API_KEY or MANUS_API_KEY is not configured");
   }
 };
+
+const providerApiKey = () =>
+  isOpenAiConfigured() ? ENV.openAiApiKey : ENV.forgeApiKey;
 
 const normalizeResponseFormat = ({
   responseFormat,
@@ -313,9 +327,7 @@ const fetchWithBackoff = async (
         return response;
       }
 
-      const retryAfterMs = parseRetryAfter(
-        response.headers.get("retry-after")
-      );
+      const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
       try {
         await response.body?.cancel();
       } catch {
@@ -406,7 +418,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${providerApiKey()}`,
     },
     body: JSON.stringify(payload),
   });
@@ -436,10 +448,12 @@ export type ModelsResponse = {
 export async function listLLMModels(): Promise<ModelsResponse> {
   assertApiKey();
 
-  const url = `${platformApiBase()}/v1/models`;
+  const url = isOpenAiConfigured()
+    ? `${providerApiBase()}/models`
+    : `${providerApiBase()}/v1/models`;
 
   const response = await fetchWithBackoff(url, {
-    headers: { authorization: `Bearer ${ENV.forgeApiKey}` },
+    headers: { authorization: `Bearer ${providerApiKey()}` },
   });
 
   if (!response.ok) {

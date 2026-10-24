@@ -1,7 +1,6 @@
 import { nanoid } from "nanoid";
 import type { PermissionManager } from "../security/permissions";
 import {
-  looksLikeInstructionInjection,
   sanitizePublicText,
   untrustedDataBoundary,
 } from "../security/safety";
@@ -60,6 +59,12 @@ export class BrowserWorkspace {
     if (!value) throw new Error("Browser session unavailable.");
     return value;
   }
+  private ownedSession(ownerKey: string, sessionId: string) {
+    const session = this.session(sessionId);
+    if (session.ownerKey !== ownerKey)
+      throw new Error("Browser session ownership mismatch.");
+    return session;
+  }
   private check(owner: string) {
     if (!this.permissions.evaluate(owner, "web_access").allowed)
       throw new Error("Browser web permission denied.");
@@ -94,7 +99,15 @@ export class BrowserWorkspace {
         throw new Error("Redirects require explicit navigation.");
       if (response.status < 200 || response.status >= 300)
         throw new Error("Page navigation failed.");
-      const html = response.body;
+      return this.snapshotFromBody(page, response.body);
+    } catch (error) {
+      page.navigationState = "error";
+      throw new Error(
+        error instanceof Error ? error.message : "Browser unavailable."
+      );
+    }
+  }
+  private snapshotFromBody(page: BrowserPage, html: string): BrowserSnapshot {
       const title =
         html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() || page.url;
       const text = sanitizePublicText(strip(html)).slice(0, MAX_TEXT);
@@ -115,19 +128,13 @@ export class BrowserWorkspace {
         timestamp: Date.now(),
         contentTrust: "untrusted_web_data",
       };
-    } catch (error) {
-      page.navigationState = "error";
-      throw new Error(
-        error instanceof Error ? error.message : "Browser unavailable."
-      );
-    }
   }
   async snapshot(
     ownerKey: string,
     sessionId: string
   ): Promise<BrowserSnapshot> {
     this.check(ownerKey);
-    const session = this.session(sessionId);
+    const session = this.ownedSession(ownerKey, sessionId);
     if (!session.activePageId) throw new Error("No active browser page.");
     const snapshot = this.snapshots.get(session.activePageId);
     if (!snapshot) throw new Error("Page snapshot unavailable.");
@@ -140,12 +147,74 @@ export class BrowserWorkspace {
   ): Promise<BrowserResult> {
     this.check(ownerKey);
     browserActionSchema.parse(action);
+    this.ownedSession(ownerKey, sessionId);
     if (action.type === "navigate") {
       if (!action.value) throw new Error("Navigation URL is required.");
       const opened = await this.open(ownerKey, sessionId, action.value);
       return { success: true, actionId: action.id, data: opened.snapshot };
     }
-    if (["click", "select", "type"].includes(action.type))
+    if (action.type === "click") {
+      const session = this.ownedSession(ownerKey, sessionId);
+      if (!session.activePageId)
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: { code: "no_active_page", message: "Open a page before clicking." },
+        };
+      const current = await this.snapshot(ownerKey, sessionId);
+      const target = (action.target ?? action.value ?? "").toLowerCase();
+      if (!target)
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: { code: "target_required", message: "A link target is required." },
+        };
+      const link = current.links.find(
+        candidate =>
+          candidate.text.toLowerCase() === target ||
+          candidate.url.toLowerCase() === target ||
+          candidate.text.toLowerCase().includes(target)
+      );
+      if (!link)
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: { code: "target_not_found", message: "The requested link was not found." },
+        };
+      const opened = await this.open(ownerKey, sessionId, link.url);
+      return { success: true, actionId: action.id, data: opened.snapshot };
+    }
+    if (action.type === "extract") {
+      const snapshot = await this.snapshot(ownerKey, sessionId);
+      return {
+        success: true,
+        actionId: action.id,
+        data: {
+          pageId: snapshot.pageId,
+          text: snapshot.text,
+          sourceUrl: snapshot.url,
+          truncated: snapshot.text.length >= MAX_TEXT,
+          contentTrust: "untrusted_web_data",
+        },
+      };
+    }
+    const session = this.ownedSession(ownerKey, sessionId);
+    const pageId = session.activePageId;
+    const page = pageId ? this.pages.get(pageId) : null;
+    if (page && this.provider.interact) {
+      const response = await this.provider.interact(page.url, action);
+      if (response.status >= 200 && response.status < 300) {
+        const snapshot = this.snapshotFromBody(page, response.body);
+        this.snapshots.set(page.id, snapshot);
+        page.title = snapshot.title;
+        page.navigationState = "ready";
+        return { success: true, actionId: action.id, data: snapshot };
+      }
+    }
+    if (["select", "type", "scroll"].includes(action.type))
       return {
         success: false,
         actionId: action.id,
@@ -153,7 +222,7 @@ export class BrowserWorkspace {
         error: {
           code: "unsupported_operation",
           message:
-            "Interactive side effects require a future controlled browser provider.",
+            "This workspace has no controlled interactive browser provider configured.",
         },
       };
     return {

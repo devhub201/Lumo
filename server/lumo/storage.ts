@@ -99,12 +99,15 @@ export class DatabaseLumoStorage implements LumoStorage {
     const rows = await db
       .select()
       .from(lumoConversations)
-      .where(eq(lumoConversations.id, conversationId))
+      .where(
+        and(
+          eq(lumoConversations.id, conversationId),
+          eq(lumoConversations.ownerKey, ownerKey)
+        )
+      )
       .limit(1);
     const conversation = rows[0];
-    return conversation && conversation.ownerKey === ownerKey
-      ? toConversation(conversation)
-      : null;
+    return conversation ? toConversation(conversation) : null;
   }
 
   async listConversations(ownerKey: string) {
@@ -117,8 +120,10 @@ export class DatabaseLumoStorage implements LumoStorage {
     return rows.map(toConversation);
   }
 
-  async listMessages(conversationId: string, limit: number) {
+  async listMessages(ownerKey: string, conversationId: string, limit: number) {
     const db = await requireDb();
+    const conversation = await this.getConversation(ownerKey, conversationId);
+    if (!conversation) return [];
     const rows = await db
       .select()
       .from(lumoMessages)
@@ -129,6 +134,7 @@ export class DatabaseLumoStorage implements LumoStorage {
   }
 
   async appendTurn(input: {
+    ownerKey: string;
     conversationId: string;
     userContent: string;
     assistantContent: string;
@@ -137,6 +143,16 @@ export class DatabaseLumoStorage implements LumoStorage {
     memoryIds: string[];
   }) {
     const db = await requireDb();
+    const conversation = await this.getConversation(
+      input.ownerKey,
+      input.conversationId
+    );
+    if (!conversation)
+      throw new LumoError(
+        "conversation_not_found",
+        "Conversation not found",
+        "That conversation is not available."
+      );
     const latest = await db
       .select({ sequence: lumoMessages.sequence })
       .from(lumoMessages)
@@ -172,7 +188,12 @@ export class DatabaseLumoStorage implements LumoStorage {
     await db
       .update(lumoConversations)
       .set({ lastMessageAt: new Date(), updatedAt: new Date() })
-      .where(eq(lumoConversations.id, input.conversationId));
+      .where(
+        and(
+          eq(lumoConversations.id, input.conversationId),
+          eq(lumoConversations.ownerKey, input.ownerKey)
+        )
+      );
     const rows = await db
       .select()
       .from(lumoMessages)
@@ -185,6 +206,7 @@ export class DatabaseLumoStorage implements LumoStorage {
   }
 
   async updateConversation(input: {
+    ownerKey: string;
     conversationId: string;
     depthLevel: number;
     depthTopic?: string | null;
@@ -203,7 +225,12 @@ export class DatabaseLumoStorage implements LumoStorage {
           : { summary: input.summary, summaryUpdatedAt: new Date() }),
         updatedAt: new Date(),
       })
-      .where(eq(lumoConversations.id, input.conversationId));
+      .where(
+        and(
+          eq(lumoConversations.id, input.conversationId),
+          eq(lumoConversations.ownerKey, input.ownerKey)
+        )
+      );
   }
 
   async listMemories(ownerKey: string) {

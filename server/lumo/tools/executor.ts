@@ -7,7 +7,13 @@ import type {
   ToolRegistry,
   ToolResult,
 } from "./contracts";
-import { requireSensitiveAuthorization } from "../security/safety";
+import type {
+  SensitiveActionAuthorization,
+  SensitiveGrantService,
+} from "../security/grants";
+import {
+  isolatedSensitiveGrantService,
+} from "../security/grants";
 import type { PerformanceRecorder } from "../performance";
 
 export class ToolExecutor {
@@ -15,7 +21,8 @@ export class ToolExecutor {
     private readonly registry: ToolRegistry,
     private readonly permissions: ToolPermissionChecker,
     private readonly logger: LumoLogger,
-    private readonly performance?: PerformanceRecorder
+    private readonly performance: PerformanceRecorder | undefined,
+    private readonly grants: SensitiveGrantService = isolatedSensitiveGrantService
   ) {}
 
   async execute<TOutput = unknown>(input: {
@@ -23,12 +30,7 @@ export class ToolExecutor {
     arguments: unknown;
     ownerKey: string;
     requestId?: string;
-    authorization?: {
-      authorized: boolean;
-      action: string;
-      reason: string;
-      issuedAt: number;
-    };
+    authorization?: SensitiveActionAuthorization;
   }): Promise<ToolResult<TOutput>> {
     const requestId = input.requestId ?? nanoid(12);
     const startedAt = Date.now();
@@ -86,7 +88,12 @@ export class ToolExecutor {
 
     if (
       tool.sensitiveAction &&
-      !requireSensitiveAuthorization(input.authorization, tool.sensitiveAction)
+      !(await this.grants.consume(
+        input.ownerKey,
+        input.authorization,
+        tool.sensitiveAction,
+        input.toolId
+      ))
     ) {
       return this.fail<TOutput>(tool.id, requestId, startedAt, {
         code: "authorization_required",

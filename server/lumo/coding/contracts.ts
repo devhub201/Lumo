@@ -52,6 +52,7 @@ export type Diagnostic = {
 };
 export type CodeTask = {
   id: string;
+  ownerKey: string;
   requestId: string;
   projectId: string;
   status: CodingStatus;

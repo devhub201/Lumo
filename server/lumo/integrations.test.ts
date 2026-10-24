@@ -3,6 +3,10 @@ import { PermissionManager } from "./security/permissions";
 import { MockGithubProvider, GithubManager } from "./github";
 import { GmailManager, MockGmailProvider } from "./gmail";
 import { sanitizePublicText } from "./security/safety";
+import {
+  InMemorySensitiveGrantStore,
+  SensitiveGrantService,
+} from "./security/grants";
 
 describe("integration secret safety", () => {
   it("redacts provider token-like values before public context", () => {
@@ -31,7 +35,8 @@ describe("Phase 24 GitHub integration", () => {
     permissions.grant("peter", "external_integrations");
     const provider = new MockGithubProvider();
     provider.connect();
-    const manager = new GithubManager(permissions, provider);
+    const grants = new SensitiveGrantService(new InMemorySensitiveGrantStore());
+    const manager = new GithubManager(permissions, provider, grants);
     const listed = await manager.listRepositories("peter");
     expect(listed.data).toHaveLength(1);
     const file = await manager.readFile("peter", {
@@ -55,12 +60,11 @@ describe("Phase 24 GitHub integration", () => {
             expectedSha: "wrong",
             message: "update",
           },
-          {
-            authorized: true,
-            action: "github.update_file",
-            reason: "user",
-            issuedAt: Date.now(),
-          }
+          await grants.issue(
+            "peter",
+            "github.update_file",
+            "mock-owner/mock-repository/main/README.md"
+          )
         )
       ).error?.code
     ).toBe("conflict");
@@ -100,7 +104,8 @@ describe("Phase 25 Gmail integration", () => {
     permissions.grant("peter", "account_services");
     const provider = new MockGmailProvider();
     provider.connect();
-    const manager = new GmailManager(permissions, provider);
+    const grants = new SensitiveGrantService(new InMemorySensitiveGrantStore());
+    const manager = new GmailManager(permissions, provider, grants);
     expect(
       (
         await manager.draft("peter", {
@@ -119,18 +124,21 @@ describe("Phase 25 Gmail integration", () => {
     expect((await manager.send("peter", input)).error?.code).toBe(
       "authorization_required"
     );
-    const auth = {
-      authorized: true,
-      action: "gmail.send",
-      reason: "user approved",
-      issuedAt: Date.now(),
-    };
+    const auth = await grants.issue("peter", "gmail.send", input.idempotencyKey);
     expect((await manager.send("peter", input, auth)).success).toBe(true);
-    expect((await manager.send("peter", input, auth)).error?.code).toBe(
+    const replay = await manager.send("peter", input, auth);
+    expect(replay.error?.code).toBe("authorization_required");
+    const duplicateAuth = await grants.issue(
+      "peter",
+      "gmail.send",
+      input.idempotencyKey
+    );
+    expect((await manager.send("peter", input, duplicateAuth)).error?.code).toBe(
       "duplicate_send"
     );
+    const invalidAuth = await grants.issue("peter", "gmail.send", input.idempotencyKey);
     expect(
-      (await manager.send("peter", { ...input, to: ["not-an-email"] }, auth))
+      (await manager.send("peter", { ...input, to: ["not-an-email"] }, invalidAuth))
         .error?.code
     ).toBe("invalid_input");
   });
