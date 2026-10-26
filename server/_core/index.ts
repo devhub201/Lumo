@@ -18,7 +18,10 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
   app.get("/api/platform/config.js", (_req, res) => {
-    res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
+    res
+      .set("Cache-Control", "no-store")
+      .type("application/javascript")
+      .send(publicPlatformScript());
   });
   registerOAuthRoutes(app);
   // tRPC API
@@ -37,10 +40,23 @@ async function startServer() {
   }
 
   const port = Number(process.env.PORT || "3000");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
-  const host = process.env.LUMO_INTERNAL_ONLY === "true" ? "127.0.0.1" : "0.0.0.0";
-  server.on("error", error => { console.error("Server failed:", error.message); process.exit(1); });
-  server.listen(port, host, () => console.log(`Server listening on ${host}:${port}`));
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("Invalid PORT");
+  const host =
+    process.env.LUMO_INTERNAL_ONLY === "true" ||
+    process.env.NODE_ENV === "production"
+      ? "127.0.0.1"
+      : "0.0.0.0";
+  server.on("error", error => {
+    console.error("Server failed:", error.message);
+    process.exit(1);
+  });
+  server.listen(port, host, () =>
+    console.log(`Server listening on ${host}:${port}`)
+  );
 }
 
-startServer().catch(error => { console.error(error); process.exit(1); });
+startServer().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

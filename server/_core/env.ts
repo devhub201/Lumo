@@ -16,6 +16,12 @@ export const ENV = {
   get ownerOpenId() {
     return process.env.OWNER_OPEN_ID ?? "";
   },
+  get tailscaleOnly() {
+    return process.env.LUMO_TAILSCALE_ONLY === "true";
+  },
+  get tailscaleOwnerLogin() {
+    return (process.env.LUMO_TAILSCALE_OWNER_LOGIN ?? "").trim().toLowerCase();
+  },
   get isProduction() {
     return process.env.NODE_ENV === "production";
   },

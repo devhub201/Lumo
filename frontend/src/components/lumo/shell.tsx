@@ -3,9 +3,9 @@ import {
   Aperture,
   CircleHelp,
   Command,
-  Fingerprint,
   Home,
   LayoutGrid,
+  ShieldCheck,
   Settings2,
   Sparkles,
 } from "lucide-react";
@@ -81,9 +81,13 @@ function InnerShell({ children }: { children: ReactNode }) {
           >
             <CircleHelp />
           </Button>
-          <Link to="/auth" className="profile-avatar" title="Identity" aria-label="Identity">
-            {preferences.name ? preferences.name.charAt(0).toUpperCase() : <Fingerprint />}
-          </Link>
+          <div
+            className="profile-avatar"
+            title="Private access via Tailscale"
+            aria-label="Private access via Tailscale"
+          >
+            <ShieldCheck />
+          </div>
         </div>
       </aside>
       <div className="shell-main">
@@ -98,7 +102,7 @@ function InnerShell({ children }: { children: ReactNode }) {
           </div>
           <div className="topbar-right">
             <span className="preview-label">
-              Personal workspace <span>Preview</span>
+              Private workspace <span>Tailscale</span>
             </span>
             <Button asChild variant="ghost" className="workspace-selector">
               <Link to="/settings">
@@ -111,11 +115,11 @@ function InnerShell({ children }: { children: ReactNode }) {
         <main>{children}</main>
         <footer className="system-footer">
           <span>
-            <span className="footer-dot" /> Local workspace
+            <span className="footer-dot" /> Private tailnet
           </span>
           <span>
             LUMO <span className="footer-version">v0.1</span>
-            <span className="footer-divider">/</span>Frontend preview
+            <span className="footer-divider">/</span>Connected securely
           </span>
           <span className="footer-end">
             <Command size={12} /> Designed for focus

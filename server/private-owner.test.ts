@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appRouter } from "./routers";
 import { registerOAuthRoutes } from "./_core/oauth";
+import { createContext } from "./_core/context";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
@@ -32,6 +33,8 @@ const context = (currentUser: TestUser | null): TrpcContext => ({
 
 describe("private owner authorization", () => {
   const previousOwnerOpenId = process.env.OWNER_OPEN_ID;
+  const previousTailscaleOnly = process.env.LUMO_TAILSCALE_ONLY;
+  const previousTailscaleOwnerLogin = process.env.LUMO_TAILSCALE_OWNER_LOGIN;
 
   beforeEach(() => {
     process.env.OWNER_OPEN_ID = "user-1";
@@ -41,6 +44,12 @@ describe("private owner authorization", () => {
     vi.restoreAllMocks();
     if (previousOwnerOpenId === undefined) delete process.env.OWNER_OPEN_ID;
     else process.env.OWNER_OPEN_ID = previousOwnerOpenId;
+    if (previousTailscaleOnly === undefined)
+      delete process.env.LUMO_TAILSCALE_ONLY;
+    else process.env.LUMO_TAILSCALE_ONLY = previousTailscaleOnly;
+    if (previousTailscaleOwnerLogin === undefined)
+      delete process.env.LUMO_TAILSCALE_OWNER_LOGIN;
+    else process.env.LUMO_TAILSCALE_OWNER_LOGIN = previousTailscaleOwnerLogin;
   });
 
   it("allows the configured owner and rejects another authenticated identity", async () => {
@@ -50,6 +59,53 @@ describe("private owner authorization", () => {
     await expect(
       appRouter.createCaller(context(user(2))).lumo.diagnostics()
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("accepts only the configured Tailscale identity without an app session", async () => {
+    process.env.LUMO_TAILSCALE_ONLY = "true";
+    process.env.LUMO_TAILSCALE_OWNER_LOGIN = "owner@example.test";
+    const authenticate = vi.spyOn(sdk, "authenticateRequest");
+    const ctx = await createContext({
+      req: {
+        path: "/api/trpc",
+        headers: { "tailscale-user-login": "OWNER@example.test" },
+      },
+      res: {},
+    } as never);
+
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(ctx.user).toMatchObject({
+      openId: "tailscale:owner@example.test",
+      email: "owner@example.test",
+      loginMethod: "tailscale",
+    });
+    await expect(
+      appRouter.createCaller(ctx).lumo.diagnostics()
+    ).resolves.toMatchObject({ ownerKey: "tailscale:owner" });
+  });
+
+  it("rejects missing or mismatched Tailscale identity without falling back to cookies", async () => {
+    process.env.LUMO_TAILSCALE_ONLY = "true";
+    process.env.LUMO_TAILSCALE_OWNER_LOGIN = "owner@example.test";
+    const authenticate = vi
+      .spyOn(sdk, "authenticateRequest")
+      .mockResolvedValue(user(1));
+    const ctx = await createContext({
+      req: {
+        path: "/api/trpc",
+        headers: {
+          "tailscale-user-login": "other@example.test",
+          cookie: "lumo_session=valid-looking-cookie",
+        },
+      },
+      res: {},
+    } as never);
+
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(ctx.user).toBeNull();
+    await expect(
+      appRouter.createCaller(ctx).lumo.diagnostics()
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
   it("rejects an unauthorized session before database user synchronization", async () => {

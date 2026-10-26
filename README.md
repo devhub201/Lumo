@@ -1,30 +1,22 @@
-# LUMO — Personal AI Companion
+# LUMO — Personal AI Workspace
 
-A first functional foundation for Peter's personal AI companion. This repository is intentionally a **testing build**, not the final immersive LUMO UI.
+LUMO combines the supplied TanStack frontend, Express/tRPC backend, persistent conversation and memory storage, and the existing Capacitor Android project.
 
-## Run locally
+## Local development
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm check
 pnpm test
 pnpm dev
 ```
 
-The server listens on `PORT` (default `3000`) and serves the React testing workbench plus the tRPC API.
+For production, build with `pnpm build` and run `pnpm start` under a persistent process manager. Production startup intentionally fails closed unless Tailscale-only mode, the exact Tailscale owner identity, and a root HTTPS `*.ts.net` origin are configured. The frontend and API bind to loopback; Tailscale Serve is the only ingress. No LUMO/Google login screen is used in this mode.
 
-The managed environment supplies `DATABASE_URL`, `MANUS_API_URL`, and `MANUS_API_KEY` at runtime. The provider key and database connection remain server-only; no client-side code contains them.
+## AI and persistence
 
-Optional server-only settings:
+Configure `OPENAI_API_KEY` only in the server environment. The API key is not embedded in the browser bundle or APK. LUMO conversation and memory persistence requires MySQL/MariaDB through `DATABASE_URL`; use a dedicated empty LUMO database rather than an existing or unknown database.
 
-- `LUMO_MODEL` — explicit platform model ID; blank uses the platform default.
-- `LUMO_MAX_TOKENS` — response budget, clamped to 4,000.
-- `LUMO_TIMEOUT_MS` — request timeout, clamped between 5 and 120 seconds.
+## Android
 
-## Architecture
-
-`client/src/pages/Home.tsx` → `lumo.send` → `server/lumo/core.ts` → `server/lumo/provider.ts` → the managed platform LLM.
-
-The core retrieves a bounded recent message window and relevant structured memories, then persists completed turns through `DatabaseLumoStorage`. Storage, provider, capability, and permission contracts are separate so future VPS/local adapters and tools can be added without rewriting the UI or orchestration layer.
-
-See [LUMO.md](./LUMO.md) for the data boundaries, future extension points, and development notes.
+The Capacitor APK is an online client for the private Tailscale HTTPS origin. Android must have Tailscale installed and be signed into the authorized tailnet. GitHub Actions can build and verify the installable debug APK but cannot access or probe a private tailnet endpoint. See [`PTERODACTYL_SETUP.md`](./PTERODACTYL_SETUP.md) and [`frontend/BACKEND_INTEGRATION.md`](./frontend/BACKEND_INTEGRATION.md).

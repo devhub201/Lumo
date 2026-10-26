@@ -3,14 +3,26 @@ import type { AuthenticatedUser } from "./sdk";
 import { ENV } from "./env";
 
 const OWNER_KEY_PREFIX = "user:";
+const TAILSCALE_OWNER_KEY = "tailscale:owner";
+const TAILSCALE_OPEN_ID_PREFIX = "tailscale:";
 
-/** Compare the authenticated provider identity with the server-only owner allowlist. */
+function configuredTailscaleOpenId(): string {
+  return ENV.tailscaleOnly && ENV.tailscaleOwnerLogin
+    ? `${TAILSCALE_OPEN_ID_PREFIX}${ENV.tailscaleOwnerLogin}`
+    : "";
+}
+
+function isTailscaleOwner(openId: unknown): openId is string {
+  const configured = configuredTailscaleOpenId();
+  return configured.length > 0 && openId === configured;
+}
+
+/** Compare an identity with either the server-only OAuth allowlist or the exact configured Tailscale owner. */
 export function isAuthorizedOwnerOpenId(openId: unknown): openId is string {
   const configuredOwner = ENV.ownerOpenId.trim();
   return (
-    configuredOwner.length > 0 &&
-    typeof openId === "string" &&
-    openId === configuredOwner
+    (configuredOwner.length > 0 && openId === configuredOwner) ||
+    isTailscaleOwner(openId)
   );
 }
 
@@ -26,18 +38,25 @@ export function assertPrivateOwner(user: AuthenticatedUser | null): string {
   return ownerKey;
 }
 
-/** Convert the authenticated database identity into the only LUMO owner key. */
+/** Convert the authenticated session or trusted Tailscale principal into the only LUMO owner key. */
 export function resolveOwnerKey(user: AuthenticatedUser | null): string {
   if (
     !user ||
     user.isCron ||
     user.taskUid ||
-    !Number.isSafeInteger(user.id) ||
-    user.id <= 0 ||
     typeof user.openId !== "string" ||
     user.openId.trim().length === 0 ||
     user.openId.startsWith("cron_")
   ) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "A supported authenticated user identity is required.",
+    });
+  }
+
+  if (isTailscaleOwner(user.openId)) return TAILSCALE_OWNER_KEY;
+
+  if (!Number.isSafeInteger(user.id) || user.id <= 0) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "A supported authenticated user identity is required.",

@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { matchesTailscaleOwner } from "./lib/lumo/tailscale-gate";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -31,8 +32,7 @@ async function proxyBackendRequest(request: Request): Promise<Response | null> {
   const incomingUrl = new URL(request.url);
   if (!isBackendPath(incomingUrl.pathname)) return null;
 
-  const backendOrigin =
-    process.env["LUMO_API_INTERNAL_ORIGIN"]?.trim() || "http://127.0.0.1:3100";
+  const backendOrigin = process.env["LUMO_API_INTERNAL_ORIGIN"]?.trim() || "http://127.0.0.1:3100";
   const target = new URL(`${incomingUrl.pathname}${incomingUrl.search}`, backendOrigin);
   const headers = new Headers(request.headers);
   headers.delete("host");
@@ -101,6 +101,19 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      if (
+        !matchesTailscaleOwner(
+          request.headers,
+          process.env["LUMO_TAILSCALE_ONLY"] === "true",
+          process.env["LUMO_TAILSCALE_OWNER_LOGIN"],
+        )
+      ) {
+        return new Response("LUMO is available only to its configured private Tailscale owner.", {
+          status: 403,
+          headers: { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+
       const proxied = await proxyBackendRequest(request);
       if (proxied) return proxied;
 

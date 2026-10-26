@@ -21,14 +21,15 @@ if (
   url.password ||
   url.pathname !== "/" ||
   url.search ||
-  url.hash
+  url.hash ||
+  !url.hostname.toLowerCase().replace(/\.$/, "").endsWith(".ts.net")
 ) {
   console.error(
-    "LUMO_CAPACITOR_SERVER_URL must be a root HTTPS origin without credentials, path, query, or fragment."
+    "LUMO_CAPACITOR_SERVER_URL must be a root HTTPS Tailscale *.ts.net origin without credentials, path, query, or fragment."
   );
   process.exit(1);
 }
 
 console.log(
-  "HTTPS app-origin syntax is valid; public reachability is checked separately in CI."
+  "Private Tailscale HTTPS origin syntax is valid; verify reachability from an enrolled device."
 );

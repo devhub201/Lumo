@@ -12,7 +12,6 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { initializeMobileGoogleSignIn } from "../lib/lumo/backend";
 import { Shell } from "../components/lumo/shell";
 import { Toaster } from "../components/ui/sonner";
 
@@ -121,12 +120,6 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  useEffect(() => {
-    void initializeMobileGoogleSignIn().catch((error) => {
-      console.error("Unable to initialize mobile sign-in callbacks:", error);
-    });
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}

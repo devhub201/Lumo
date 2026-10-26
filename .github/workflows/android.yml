@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       https_app_url:
-        description: Root public HTTPS origin of the deployed LUMO app (not the Pterodactyl panel URL)
+        description: Root private HTTPS Tailscale *.ts.net origin of the deployed LUMO app
         required: true
         type: string
       publish_release:
@@ -82,7 +82,7 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Verify public LUMO deployment
+      - name: Validate private Tailscale origin
         run: node scripts/validate-android-origin.mjs && node scripts/verify-android-origin.mjs
       - name: Build and sync Android project
         run: pnpm run android:build
