@@ -1,6 +1,5 @@
 import type { Message } from "../_core/llm";
 
-export const LUMO_OWNER_KEY = "peter" as const;
 export const LUMO_MESSAGE_LIMIT = 24;
 export const LUMO_MEMORY_LIMIT = 5;
 export const LUMO_PERSONALITY_SETTING_KEY = "personality" as const;
@@ -103,8 +102,13 @@ export interface LumoStorage {
     conversationId: string
   ): Promise<LumoConversation | null>;
   listConversations(ownerKey: string): Promise<LumoConversation[]>;
-  listMessages(conversationId: string, limit: number): Promise<LumoMessage[]>;
+  listMessages(
+    ownerKey: string,
+    conversationId: string,
+    limit: number
+  ): Promise<LumoMessage[]>;
   appendTurn(input: {
+    ownerKey: string;
     conversationId: string;
     userContent: string;
     assistantContent: string;
@@ -113,6 +117,7 @@ export interface LumoStorage {
     memoryIds: string[];
   }): Promise<{ userMessage: LumoMessage; assistantMessage: LumoMessage }>;
   updateConversation(input: {
+    ownerKey: string;
     conversationId: string;
     depthLevel: number;
     depthTopic?: string | null;

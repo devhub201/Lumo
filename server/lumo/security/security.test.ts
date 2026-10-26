@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { PermissionManager } from "./permissions";
 import { looksLikeInstructionInjection, sanitizePublicText } from "./safety";
 import { ToolExecutor } from "../tools/executor";
+import {
+  InMemorySensitiveGrantStore,
+  SensitiveGrantService,
+} from "./grants";
 import { InMemoryToolRegistry } from "../tools/registry";
 import { AllowlistToolPermissions } from "../tools/permissions";
 import { z } from "zod";
@@ -30,6 +34,7 @@ describe("security boundaries", () => {
   it("requires explicit sensitive authorization before handler", async () => {
     const handler = vi.fn(async () => ({ ok: true }));
     const registry = new InMemoryToolRegistry();
+    const grants = new SensitiveGrantService(new InMemorySensitiveGrantStore());
     registry.register({
       id: "danger",
       name: "Danger",
@@ -45,7 +50,9 @@ describe("security boundaries", () => {
     const executor = new ToolExecutor(
       registry,
       new AllowlistToolPermissions(),
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      undefined,
+      grants
     );
     const denied = await executor.execute({
       toolId: "danger",
@@ -58,12 +65,7 @@ describe("security boundaries", () => {
       toolId: "danger",
       arguments: {},
       ownerKey: "peter",
-      authorization: {
-        authorized: true,
-        action: "delete_file",
-        reason: "user approved",
-        issuedAt: Date.now(),
-      },
+      authorization: await grants.issue("peter", "delete_file", "danger"),
     });
     expect(allowed.success).toBe(true);
   });

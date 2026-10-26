@@ -39,7 +39,10 @@ export class ManagedLumoProvider implements LumoProvider {
       const result = await withTimeout(
         invokeLLM({
           messages: request.messages,
-          model: request.model || ENV.lumoModel || undefined,
+          model:
+            request.model ||
+            ENV.lumoModel ||
+            (ENV.openAiApiKey ? ENV.openAiModel : undefined),
           maxTokens: request.maxTokens ?? ENV.lumoMaxTokens,
         }),
         request.timeoutMs
@@ -68,7 +71,10 @@ export class ManagedLumoProvider implements LumoProvider {
       return {
         content,
         model:
-          result.model || request.model || ENV.lumoModel || "platform-default",
+          result.model ||
+          request.model ||
+          ENV.lumoModel ||
+          (ENV.openAiApiKey ? ENV.openAiModel : "platform-default"),
         usage: result.usage
           ? {
               promptTokens: result.usage.prompt_tokens,

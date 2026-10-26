@@ -21,12 +21,15 @@ export const MAX_FILE_BYTES = 1_000_000;
 export const MAX_READ_CHARS = 12_000;
 export const MAX_SEARCH_RESULTS = 20;
 export const MAX_SEARCH_QUERY = 200;
+export const MAX_DOCUMENT_QUESTION = 500;
 export const FILE_TOOL_IDS = [
   "file_list",
   "file_read",
   "file_search",
   "document_summarize",
   "document_extract",
+  "document_question",
+  "document_key_info",
   "document_create",
   "file_save",
   "file_metadata",
@@ -85,6 +88,16 @@ export type DocumentSummaryOutput = FileMetadata & {
 export type DocumentExtractOutput = FileReadOutput & {
   format: SupportedFileType;
 };
+export type DocumentQuestionOutput = FileMetadata & {
+  question: string;
+  answer: string;
+  matches: Array<{ line: number; excerpt: string }>;
+  contentTrust: "untrusted_document_data";
+};
+export type DocumentKeyInfoOutput = FileMetadata & {
+  fields: Array<{ kind: string; values: string[] }>;
+  contentTrust: "untrusted_document_data";
+};
 
 export const fileListInputSchema = z.object({
   prefix: z.string().trim().max(80).optional(),
@@ -105,6 +118,15 @@ export const documentSummarizeInputSchema = z.object({
   maxChars: z.number().int().min(500).max(4_000).default(2_000),
 });
 export const documentExtractInputSchema = z.object({
+  fileId: fileIdSchema,
+  maxChars: z.number().int().min(1).max(MAX_READ_CHARS).default(MAX_READ_CHARS),
+});
+export const documentQuestionInputSchema = z.object({
+  fileId: fileIdSchema,
+  question: z.string().trim().min(1).max(MAX_DOCUMENT_QUESTION),
+  maxChars: z.number().int().min(500).max(8_000).default(4_000),
+});
+export const documentKeyInfoInputSchema = z.object({
   fileId: fileIdSchema,
   maxChars: z.number().int().min(1).max(MAX_READ_CHARS).default(MAX_READ_CHARS),
 });

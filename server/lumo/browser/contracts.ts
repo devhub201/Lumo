@@ -59,6 +59,10 @@ export type BrowserResult = {
 export type BrowserProviderResponse = { status: number; body: string };
 export interface BrowserProvider {
   fetch(url: string): Promise<BrowserProviderResponse>;
+  interact?(
+    url: string,
+    action: BrowserAction
+  ): Promise<BrowserProviderResponse>;
 }
 export const browserUrlSchema = z
   .string()

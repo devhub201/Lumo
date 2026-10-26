@@ -355,6 +355,7 @@ export function createLumoCore({
       }
 
       const recentMessages = await storage.listMessages(
+        ownerKey,
         conversation.id,
         LUMO_MESSAGE_LIMIT
       );
@@ -487,6 +488,7 @@ export function createLumoCore({
           memoryWrite = result.failed ? "failed" : "stored";
         }
         const persisted = await storage.appendTurn({
+          ownerKey,
           conversationId: conversation.id,
           userContent: userText,
           assistantContent,
@@ -501,6 +503,7 @@ export function createLumoCore({
         ]);
         try {
           await storage.updateConversation({
+            ownerKey,
             conversationId: conversation.id,
             depthLevel: nextDepth,
             depthTopic: conversation.depthTopic || titleFromMessage(userText),

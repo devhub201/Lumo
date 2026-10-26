@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import type { RuntimeManager } from "../runtime";
 import type { PermissionManager } from "../security/permissions";
+import type { CodeWorkspaceManager } from "./workspace";
 import type {
   BuildResult,
   CodeTask,
@@ -10,11 +11,13 @@ import type {
 export class CodingTaskManager {
   constructor(
     private readonly permissions: PermissionManager,
-    private readonly runtime: RuntimeManager
+    private readonly runtime: RuntimeManager,
+    private readonly workspace?: CodeWorkspaceManager
   ) {}
-  create(projectId: string, requestId: string): CodeTask {
+  create(ownerKey: string, projectId: string, requestId: string): CodeTask {
     return {
       id: `task_${nanoid(10)}`,
+      ownerKey,
       requestId,
       projectId,
       status: "queued",
@@ -30,6 +33,11 @@ export class CodingTaskManager {
     ownerKey: string,
     authorization?: any
   ): Promise<BuildResult | CodeTestResult> {
+    if (task.ownerKey !== ownerKey)
+      throw new Error("Coding task ownership mismatch.");
+    const cwd = this.workspace
+      ? await this.workspace.executionCwd(ownerKey, task.projectId)
+      : "/workspace";
     task.status = "testing";
     const result = await this.runtime.execute({
       targetId: "local-mock",
@@ -42,7 +50,7 @@ export class CodingTaskManager {
               ? "project_build"
               : "project_lint",
         args: [task.projectId],
-        cwd: "/workspace",
+        cwd,
         timeoutMs: Math.min(task.timeoutMs, 10000),
         maxOutputChars: 4000,
       },

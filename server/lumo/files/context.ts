@@ -1,6 +1,8 @@
 import type { ToolResult } from "../tools/contracts";
 import type {
   DocumentExtractOutput,
+  DocumentKeyInfoOutput,
+  DocumentQuestionOutput,
   DocumentSummaryOutput,
   FileReadOutput,
 } from "./contracts";
@@ -10,12 +12,23 @@ const MAX_DOCUMENT_CONTEXT = 6_000;
 /** Documents are data, never instructions. This wrapper makes that boundary explicit before model context assembly. */
 export const buildDocumentContext = (
   result: ToolResult<
-    FileReadOutput | DocumentExtractOutput | DocumentSummaryOutput
+    | FileReadOutput
+    | DocumentExtractOutput
+    | DocumentSummaryOutput
+    | DocumentQuestionOutput
+    | DocumentKeyInfoOutput
   >
 ) => {
   if (!result.success || !result.data) return null;
   const data = result.data;
-  const content = "content" in data ? data.content : data.summary;
+  const content =
+    "content" in data
+      ? data.content
+      : "summary" in data
+        ? data.summary
+        : "answer" in data
+          ? data.answer
+          : JSON.stringify("fields" in data ? data.fields : data);
   return {
     toolId: result.toolId,
     success: true,

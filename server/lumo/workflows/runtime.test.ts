@@ -4,12 +4,10 @@ import { MockRuntimeProvider } from "../runtime/mock";
 import { RuntimeManager } from "../runtime/manager";
 import { planWorkflow } from "./index";
 import { WorkflowExecutor } from "./executor";
-const auth = {
-  authorized: true,
-  action: "runtime_command",
-  reason: "explicit user authorization",
-  issuedAt: Date.now(),
-};
+import {
+  InMemorySensitiveGrantStore,
+  SensitiveGrantService,
+} from "../security/grants";
 describe("bounded workflows", () => {
   it("executes sequential dependencies and propagates references", async () => {
     const calls: string[] = [];
@@ -85,7 +83,12 @@ describe("bounded workflows", () => {
 describe("controlled runtime", () => {
   it("requires permission and sensitive authorization", async () => {
     const permissions = new PermissionManager();
-    const manager = new RuntimeManager(permissions, new MockRuntimeProvider());
+    const grants = new SensitiveGrantService(new InMemorySensitiveGrantStore());
+    const manager = new RuntimeManager(
+      permissions,
+      new MockRuntimeProvider(),
+      grants
+    );
     manager.register({
       id: "mock",
       provider: "mock",
@@ -108,6 +111,7 @@ describe("controlled runtime", () => {
     });
     expect(denied.resourceMetadata.error).toBe("authorization_required");
     permissions.grant("peter", "terminal_runtime", "runtime test");
+    const auth = await grants.issue("peter", "runtime_command", "mock");
     const allowed = await manager.execute({
       targetId: "mock",
       ownerKey: "peter",
@@ -139,7 +143,6 @@ describe("controlled runtime", () => {
       targetId: "mock",
       ownerKey: "peter",
       command: { kind: "pwd", args: [], cwd: "../secret" },
-      authorization: auth,
     });
     expect(traversal.resourceMetadata.error).toBe("command_validation");
   });

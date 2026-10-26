@@ -4,6 +4,8 @@ import { managedFileWorkspace } from "./workspace";
 import {
   documentCreateInputSchema,
   documentExtractInputSchema,
+  documentKeyInfoInputSchema,
+  documentQuestionInputSchema,
   documentSummarizeInputSchema,
   fileListInputSchema,
   fileMetadataInputSchema,
@@ -11,6 +13,8 @@ import {
   fileSaveInputSchema,
   fileSearchInputSchema,
   type DocumentExtractOutput,
+  type DocumentKeyInfoOutput,
+  type DocumentQuestionOutput,
   type DocumentSummaryOutput,
   type FileListOutput,
   type FileReadOutput,
@@ -54,6 +58,16 @@ const summaryOutputSchema = metadataSchema.extend({
   contentTrust: z.literal("untrusted_document_data"),
 });
 const createOutputSchema = metadataSchema;
+const questionOutputSchema = metadataSchema.extend({
+  question: z.string(),
+  answer: z.string(),
+  matches: z.array(z.object({ line: z.number(), excerpt: z.string() })),
+  contentTrust: z.literal("untrusted_document_data"),
+});
+const keyInfoOutputSchema = metadataSchema.extend({
+  fields: z.array(z.object({ kind: z.string(), values: z.array(z.string()) })),
+  contentTrust: z.literal("untrusted_document_data"),
+});
 
 const summarize = (content: string, maxChars: number) => {
   const sentences = content
@@ -69,6 +83,44 @@ const summarize = (content: string, maxChars: number) => {
   return (
     selected.join(" ") || content.replace(/\s+/g, " ").trim().slice(0, maxChars)
   ).trim();
+};
+const answerFromContent = (content: string, question: string, maxChars: number) => {
+  const words = [...new Set(question.toLocaleLowerCase().match(/[a-z0-9]{3,}/g) ?? [])];
+  const matches = content
+    .split(/\r?\n/)
+    .map((line, index) => ({
+      line: index + 1,
+      excerpt: line.trim().slice(0, 400),
+      score: words.reduce(
+        (score, word) => score + (line.toLocaleLowerCase().includes(word) ? 1 : 0),
+        0
+      ),
+    }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.line - b.line)
+    .slice(0, 5)
+    .map(({ line, excerpt }) => ({ line, excerpt }));
+  return {
+    answer: (matches.length
+      ? matches.map(match => match.excerpt).join(" ")
+      : "No matching passage was found in the document."
+    ).slice(0, maxChars),
+    matches,
+  };
+};
+const keyInformation = (content: string) => {
+  const patterns: Array<[string, RegExp]> = [
+    ["email", /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi],
+    ["url", /https?:\/\/[^\s,)]+/gi],
+    ["date", /\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/g],
+    ["amount", /(?:[$€£₹]\s?\d[\d,]*(?:\.\d{1,2})?)/g],
+  ];
+  return patterns
+    .map(([kind, pattern]) => ({
+      kind,
+      values: [...new Set(content.match(pattern) ?? [])].slice(0, 20),
+    }))
+    .filter(field => field.values.length);
 };
 
 export const fileTools = [
@@ -168,6 +220,54 @@ export const fileTools = [
     },
   },
   {
+    id: "document_question",
+    name: "Document Question",
+    description:
+      "Find bounded extractive evidence for a question in an owner-scoped document; document text remains untrusted data.",
+    category: "data",
+    inputSchema: documentQuestionInputSchema,
+    outputSchema: questionOutputSchema,
+    permissions: ["files"],
+    enabled: true,
+    handler: async (
+      input: z.infer<typeof documentQuestionInputSchema>,
+      context: ToolExecutionContext
+    ): Promise<DocumentQuestionOutput> => {
+      const read = await managedFileWorkspace.read(
+        context.ownerKey,
+        input.fileId,
+        input.maxChars
+      );
+      return {
+        ...read,
+        question: input.question,
+        ...answerFromContent(read.content, input.question, input.maxChars),
+      };
+    },
+  },
+  {
+    id: "document_key_info",
+    name: "Document Key Information",
+    description:
+      "Extract bounded pattern-based key information without executing document contents.",
+    category: "data",
+    inputSchema: documentKeyInfoInputSchema,
+    outputSchema: keyInfoOutputSchema,
+    permissions: ["files"],
+    enabled: true,
+    handler: async (
+      input: z.infer<typeof documentKeyInfoInputSchema>,
+      context: ToolExecutionContext
+    ): Promise<DocumentKeyInfoOutput> => {
+      const read = await managedFileWorkspace.read(
+        context.ownerKey,
+        input.fileId,
+        input.maxChars
+      );
+      return { ...read, fields: keyInformation(read.content) };
+    },
+  },
+  {
     id: "document_create",
     name: "Document Create",
     description:
@@ -219,6 +319,7 @@ export type {
   DocumentSummaryOutput,
   FileListOutput,
   FileReadOutput,
-  FileSearchOutput,
+  DocumentQuestionOutput,
+  DocumentKeyInfoOutput,
   FileMetadata,
 };

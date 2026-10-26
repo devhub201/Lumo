@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { LumoLogger } from "../logger";
+import type { SensitiveActionAuthorization } from "../security/grants";
 
 export type ToolCategory =
   | "productivity"
@@ -52,12 +53,7 @@ export type ToolExecutionContext = {
   ownerKey: string;
   requestId: string;
   logger: LumoLogger;
-  authorization?: {
-    authorized: boolean;
-    action: string;
-    reason: string;
-    issuedAt: number;
-  };
+  authorization?: SensitiveActionAuthorization;
 };
 
 export type ToolHandler<TInput, TOutput> = (
@@ -105,12 +101,7 @@ export interface ToolSystem {
     arguments: unknown;
     ownerKey: string;
     requestId: string;
-    authorization?: {
-      authorized: boolean;
-      action: string;
-      reason: string;
-      issuedAt: number;
-    };
+    authorization?: SensitiveActionAuthorization;
   }): Promise<ToolResult<TOutput>>;
   listTools(): PublicToolMetadata[];
 }

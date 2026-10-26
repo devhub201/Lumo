@@ -42,13 +42,19 @@ import {
   openCameraPreview,
   type CameraSession,
 } from "@/lib/camera";
+import { ImageInputError, readImageFile } from "@/lib/image-input";
 import type { VisionResult } from "../../../server/lumo/vision/contracts";
 import type { Blueprint } from "../../../server/lumo/blueprints/contracts";
 import type { OverlayModel } from "../../../server/lumo/overlays/contracts";
 import { detectModeCommand } from "../../../server/lumo/interaction/commands";
 import type { InteractionMode } from "../../../server/lumo/interaction/contracts";
 import type { TeachingSession } from "../../../server/lumo/teaching/contracts";
-import { createSpeechOutput, createVoiceInput, VoiceError } from "@/lib/voice";
+import {
+  createSpeechOutput,
+  createVoiceInput,
+  VoiceError,
+  type VoiceState,
+} from "@/lib/voice";
 import {
   getBiometricAvailability,
   verifyBiometric,
@@ -150,7 +156,8 @@ export default function Home() {
   const [securityStatus, setSecurityStatus] = useState(
     "native biometric ready when supported"
   );
-  const [voiceStatus, setVoiceStatus] = useState("text mode");
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceStatus, setVoiceStatus] = useState("idle");
   const voiceInputRef = useRef<ReturnType<typeof createVoiceInput> | null>(
     null
   );
@@ -159,6 +166,7 @@ export default function Home() {
   );
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraSessionRef = useRef<CameraSession | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const conversationsQuery = trpc.lumo.listConversations.useQuery();
   const diagnosticsQuery = trpc.lumo.diagnostics.useQuery();
@@ -272,6 +280,42 @@ export default function Home() {
     setCameraStatus("Camera stopped. No frames are uploaded continuously.");
   };
 
+  const applyVisionResponse = (response: unknown, dataUrl: string) => {
+    const result = (response as {
+      result?: {
+        success: boolean;
+        data?: VisionResult;
+        error?: { message?: string } | null;
+      };
+    }).result;
+    if (!result?.success || !result.data)
+      throw new Error(result?.error?.message || "LUMO could not analyze that image.");
+    setVisionSnapshot(result.data);
+    setCapturedImage(dataUrl);
+    const nextOverlay =
+      (response as { overlay?: OverlayModel | null }).overlay ?? null;
+    setOverlayModel(nextOverlay);
+    if (nextOverlay) {
+      setTeachingSession({
+        id: `teaching:${result.data.requestId}`,
+        sourceIdentity: result.data.source.identity,
+        annotations: nextOverlay.overlays.map((overlay, index) => ({
+          id: `annotation:${overlay.id}`,
+          type: "red_box" as const,
+          rect: overlay.rect,
+          targetId: overlay.id,
+          title: overlay.label,
+          explanation: `This visual target was identified with ${Math.round((overlay.confidence ?? 0) * 100)}% confidence.`,
+          sequence: index + 1,
+          visible: true,
+        })),
+        currentSequence: 1,
+        active: true,
+        trust: "untrusted_teaching_data",
+      });
+    }
+  };
+
   const captureAndAnalyze = async () => {
     const session = cameraSessionRef.current;
     if (!session || runVisionMutation.isPending) return;
@@ -287,40 +331,7 @@ export default function Home() {
         toolId: "camera_capture",
         arguments: { dataUrl: frame.dataUrl, mode: "understand" },
       });
-      const result = response.result as {
-        success: boolean;
-        data?: VisionResult;
-        error?: { message?: string } | null;
-      };
-      if (!result.success || !result.data) {
-        throw new Error(
-          result.error?.message || "LUMO could not analyze that frame."
-        );
-      }
-      setVisionSnapshot(result.data);
-      setCapturedImage(frame.dataUrl);
-      const nextOverlay =
-        (response as { overlay?: OverlayModel | null }).overlay ?? null;
-      setOverlayModel(nextOverlay);
-      if (nextOverlay) {
-        setTeachingSession({
-          id: `teaching:${result.data.requestId}`,
-          sourceIdentity: result.data.source.identity,
-          annotations: nextOverlay.overlays.map((overlay, index) => ({
-            id: `annotation:${overlay.id}`,
-            type: "red_box" as const,
-            rect: overlay.rect,
-            targetId: overlay.id,
-            title: overlay.label,
-            explanation: `This visual target was identified with ${Math.round((overlay.confidence ?? 0) * 100)}% confidence.`,
-            sequence: index + 1,
-            visible: true,
-          })),
-          currentSequence: 1,
-          active: true,
-          trust: "untrusted_teaching_data",
-        });
-      }
+      applyVisionResponse(response, frame.dataUrl);
       setCameraStatus(
         "Frame analyzed. Ask LUMO a question about what it sees."
       );
@@ -333,22 +344,51 @@ export default function Home() {
     }
   };
 
+  const analyzeImageFile = async (file: File | undefined) => {
+    if (!file || runVisionMutation.isPending) return;
+    setCameraStatus("Validating image and sending it to LUMO’s vision pipeline…");
+    try {
+      const image = await readImageFile(file);
+      const response = await runVisionMutation.mutateAsync({
+        toolId: "vision_analyze",
+        arguments: {
+          source: { kind: "upload", dataUrl: image.dataUrl },
+          mode: "understand",
+        },
+      });
+      applyVisionResponse(response, image.dataUrl);
+      setCameraStatus("Image analyzed. Ask LUMO a question about what it sees.");
+    } catch (error) {
+      setCameraStatus(
+        error instanceof ImageInputError || error instanceof Error
+          ? error.message
+          : "The image could not be analyzed."
+      );
+    }
+  };
+
   const startVoiceListening = async () => {
     setInteractionMode("voice");
     setVoiceStatus("requesting microphone permission");
     try {
       await voiceInputRef.current?.startListening(
         text => {
-          setVoiceStatus("transcription received");
+          setVoiceState("processing");
+          setVoiceStatus("processing");
           submitText(text);
         },
         error => {
+          setVoiceState("error");
           setVoiceStatus(`${error.message} Text mode remains available.`);
           setInteractionMode("text");
+        },
+        state => {
+          setVoiceState(state);
+          if (state !== "error") setVoiceStatus(state);
         }
       );
-      setVoiceStatus("listening");
     } catch (error) {
+      setVoiceState("error");
       setVoiceStatus(
         error instanceof VoiceError
           ? error.message
@@ -366,6 +406,7 @@ export default function Home() {
       if (modeCommand.mode === "text") {
         voiceInputRef.current?.cancel();
         speechOutputRef.current?.stop();
+        setVoiceState("idle");
       }
       setInteractionMode(modeCommand.mode);
       setVoiceStatus(`${modeCommand.mode} mode active`);
@@ -384,6 +425,10 @@ export default function Home() {
     setErrorText(null);
     setFailedText(null);
     setPendingText(cleanText);
+    if (interactionMode === "voice") {
+      setVoiceState("processing");
+      setVoiceStatus("processing");
+    }
     sendMutation.mutate(
       {
         conversationId: selectedId ?? undefined,
@@ -404,14 +449,17 @@ export default function Home() {
           setDraft("");
           setLastDiagnostics(result.diagnostics);
           if (interactionMode === "voice") {
+            setVoiceState("speaking");
             setVoiceStatus("speaking");
             void speechOutputRef.current
-              ?.speak(result.assistantMessage.content, () =>
-                setVoiceStatus("listening")
-              )
-              .catch(() =>
-                setVoiceStatus("speech failed; text response available")
-              );
+              ?.speak(result.assistantMessage.content, () => {
+                setVoiceState("idle");
+                setVoiceStatus("idle");
+              })
+              .catch(() => {
+                setVoiceState("error");
+                setVoiceStatus("speech failed; text response available");
+              });
           }
           void Promise.all([
             utils.lumo.listConversations.invalidate(),
@@ -421,6 +469,10 @@ export default function Home() {
           ]);
         },
         onError: error => {
+          if (interactionMode === "voice") {
+            setVoiceState("error");
+            setVoiceStatus("processing failed; text response remains available");
+          }
           setPendingText(null);
           setDraft(cleanText);
           setFailedText(cleanText);
@@ -902,25 +954,57 @@ export default function Home() {
               aria-label="Live camera preview"
             />
             <div className="camera-controls">
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="sr-only"
+                onChange={event => {
+                  void analyzeImageFile(event.target.files?.[0]);
+                  event.currentTarget.value = "";
+                }}
+                aria-label="Choose an image for vision analysis"
+              />
               <Button
                 type="button"
                 variant={interactionMode === "voice" ? "default" : "outline"}
                 size="sm"
-                onClick={() => void startVoiceListening()}
+                onClick={() => {
+                  if (interactionMode === "voice") {
+                    voiceInputRef.current?.cancel();
+                    speechOutputRef.current?.stop();
+                    setVoiceState("idle");
+                    setVoiceStatus("idle");
+                    setInteractionMode("text");
+                  } else {
+                    void startVoiceListening();
+                  }
+                }}
               >
                 <Mic size={14} />{" "}
-                {interactionMode === "voice" ? "Listening" : "Voice mode"}
+                {interactionMode === "voice" ? "Stop voice" : "Voice mode"}
               </Button>
               {!cameraOpen ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void openCamera()}
-                  disabled={runVisionMutation.isPending}
-                >
-                  <Camera size={14} /> Open camera
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void openCamera()}
+                    disabled={runVisionMutation.isPending}
+                  >
+                    <Camera size={14} /> Open camera
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={runVisionMutation.isPending}
+                  >
+                    <ScanEye size={14} /> Choose image
+                  </Button>
+                </>
               ) : (
                 <>
                   <Button

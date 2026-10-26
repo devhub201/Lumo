@@ -1,10 +1,12 @@
 import { nanoid } from "nanoid";
 import type { PermissionManager } from "../security/permissions";
+import type { SensitiveActionAuthorization } from "../security/grants";
 import {
-  requireSensitiveAuthorization,
-  type SensitiveActionAuthorization,
-} from "../security/safety";
+  SensitiveGrantService,
+  isolatedSensitiveGrantService,
+} from "../security/grants";
 import type { GmailOperation, GmailProvider, GmailResult } from "./contracts";
+type GmailProviderSource = GmailProvider | ((owner: string) => GmailProvider);
 const ok = <T>(
   operation: GmailOperation,
   requestId: string,
@@ -46,20 +48,26 @@ const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 export class GmailManager {
   constructor(
     private readonly permissions: PermissionManager,
-    private readonly provider: GmailProvider
+    private readonly provider: GmailProviderSource,
+    private readonly grants: SensitiveGrantService = isolatedSensitiveGrantService
   ) {}
+  private providerFor(owner: string) {
+    return typeof this.provider === "function"
+      ? this.provider(owner)
+      : this.provider;
+  }
   private allowed(owner: string) {
     if (!this.permissions.evaluate(owner, "account_services").allowed)
       throw new Error("permission_denied");
   }
-  private sensitive(auth: SensitiveActionAuthorization | undefined) {
-    if (!requireSensitiveAuthorization(auth, "gmail.send"))
+  private async sensitive(owner: string, auth: SensitiveActionAuthorization | undefined, resource: string) {
+    if (!(await this.grants.consume(owner, auth, "gmail.send", resource)))
       throw new Error("authorization_required");
   }
   async account(owner: string, requestId = nanoid()) {
     try {
       this.allowed(owner);
-      return ok("list_messages", requestId, await this.provider.getAccount());
+      return ok("list_messages", requestId, await this.providerFor(owner).getAccount());
     } catch (e) {
       return fail("list_messages", requestId, e);
     }
@@ -70,7 +78,7 @@ export class GmailManager {
       return ok(
         "list_messages",
         requestId,
-        await this.provider.listMessages(Math.min(limit, 50))
+        await this.providerFor(owner).listMessages(Math.min(limit, 50))
       );
     } catch (e) {
       return fail("list_messages", requestId, e);
@@ -83,7 +91,7 @@ export class GmailManager {
       return ok(
         "search_messages",
         requestId,
-        await this.provider.searchMessages(
+        await this.providerFor(owner).searchMessages(
           query.slice(0, 300),
           Math.min(limit, 50)
         )
@@ -98,7 +106,7 @@ export class GmailManager {
       return ok(
         "inspect_message",
         requestId,
-        await this.provider.getMessage(id)
+        await this.providerFor(owner).getMessage(id)
       );
     } catch (e) {
       return fail("inspect_message", requestId, e);
@@ -107,7 +115,7 @@ export class GmailManager {
   async thread(owner: string, id: string, requestId = nanoid()) {
     try {
       this.allowed(owner);
-      return ok("inspect_thread", requestId, await this.provider.getThread(id));
+      return ok("inspect_thread", requestId, await this.providerFor(owner).getThread(id));
     } catch (e) {
       return fail("inspect_thread", requestId, e);
     }
@@ -115,7 +123,7 @@ export class GmailManager {
   async labels(owner: string, requestId = nanoid()) {
     try {
       this.allowed(owner);
-      return ok("list_labels", requestId, await this.provider.listLabels());
+      return ok("list_labels", requestId, await this.providerFor(owner).listLabels());
     } catch (e) {
       return fail("list_labels", requestId, e);
     }
@@ -134,7 +142,7 @@ export class GmailManager {
       return ok(
         "create_draft",
         requestId,
-        await this.provider.createDraft(input)
+        await this.providerFor(owner).createDraft(input)
       );
     } catch (e) {
       return fail("create_draft", requestId, e);
@@ -153,12 +161,12 @@ export class GmailManager {
   ) {
     try {
       this.allowed(owner);
-      this.sensitive(auth);
+      await this.sensitive(owner, auth, input.idempotencyKey);
       if (!input.to.length || input.to.some(x => !validEmail(x)))
         throw new Error("invalid_input");
       if (!input.idempotencyKey || input.idempotencyKey.length > 120)
         throw new Error("invalid_input");
-      return ok("send", requestId, await this.provider.send(input));
+      return ok("send", requestId, await this.providerFor(owner).send(input));
     } catch (e) {
       return fail("send", requestId, e);
     }

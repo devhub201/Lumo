@@ -1,19 +1,53 @@
 name: Android build
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      https_app_url:
+        description: Root private HTTPS Tailscale *.ts.net origin of the deployed LUMO app
+        required: true
+        type: string
+      publish_release:
+        description: Publish the CI-verified installable debug APK as a GitHub prerelease (main branch only; not production-signed)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
-  android:
+  checks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck and tests
+        run: pnpm check && pnpm test
+      - name: Build API and frontend
+        run: pnpm build
+
+  android:
+    if: github.event_name == 'workflow_dispatch'
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      LUMO_CAPACITOR_SERVER_URL: ${{ inputs.https_app_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,9 +60,6 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          # setup-android defaults to the removed legacy `tools` package.
-          # Keep license acceptance inside the maintained action so CI never
-          # opens an interactive sdkmanager prompt or pipes guessed answers.
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
           packages: "platform-tools platforms;android-36 build-tools;36.0.0"
@@ -51,21 +82,46 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Typecheck and tests
-        run: pnpm check && pnpm test
-      - name: Build web assets and sync Capacitor
-        run: pnpm build && pnpm exec cap sync android
-      - name: Assemble debug APK
-        working-directory: android
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
-      - name: Verify APK
+      - name: Validate private Tailscale origin
+        run: node scripts/validate-android-origin.mjs && node scripts/verify-android-origin.mjs
+      - name: Build and sync Android project
+        run: pnpm run android:build
+      - name: Verify installable debug APK and package id
         run: |
-          test -s android/app/build/outputs/apk/debug/app-debug.apk
-          echo "APK size: $(stat -c%s android/app/build/outputs/apk/debug/app-debug.apk) bytes"
-      - name: Upload APK artifact
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.devhub201.lumo'"
+          echo "Debug APK size: $(stat -c%s "$APK") bytes"
+      - name: Upload verified debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: lumo-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/main'
+    needs: android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified APK
+        uses: actions/download-artifact@v4
+        with:
+          name: lumo-debug-apk
+          path: release-files
+      - name: Publish GitHub debug-APK prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=release-files/app-debug.apk
+          test -s "$APK"
+          TAG="lumo-android-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" "$APK" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "LUMO Android debug APK ${GITHUB_RUN_NUMBER}" \
+            --notes "CI-verified installable debug APK for the deployed HTTPS LUMO app. This is not a production-signed build. Built from ${GITHUB_SHA}." \
+            --prerelease

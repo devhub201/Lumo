@@ -132,4 +132,50 @@ describe("Phase 11 managed file workspace", () => {
     });
     expect(result.error?.code).toBe("permission_denied");
   });
+  it("answers from matching excerpts and extracts bounded key information", async () => {
+    const files = await workspace();
+    const created = await files.create("peter", {
+      name: "invoice.md",
+      content: "Contact billing@example.com on 2026-10-13. Total: $1,250.\nThe renewal is annual.",
+      overwrite: false,
+    });
+    const registry = new InMemoryToolRegistry();
+    for (const tool of fileTools) registry.register(tool as never);
+    const executor = new ToolExecutor(
+      registry,
+      new AllowlistToolPermissions(["files"]),
+      logger
+    );
+    const question = await executor.execute({
+      toolId: "document_question",
+      ownerKey: "peter",
+      arguments: { fileId: created.id, question: "What is the renewal?" },
+      requestId: "question-test",
+    });
+    expect(question.success).toBe(true);
+    expect(question.data).toMatchObject({
+      answer: expect.stringContaining("renewal"),
+      contentTrust: "untrusted_document_data",
+    });
+    const keyInfo = await executor.execute({
+      toolId: "document_key_info",
+      ownerKey: "peter",
+      arguments: { fileId: created.id },
+      requestId: "key-info-test",
+    });
+    expect(keyInfo.success).toBe(true);
+    expect(keyInfo.data).toMatchObject({
+      fields: expect.arrayContaining([
+        expect.objectContaining({ kind: "email" }),
+        expect.objectContaining({ kind: "amount" }),
+      ]),
+    });
+    const otherOwner = await executor.execute({
+      toolId: "document_question",
+      ownerKey: "other-owner",
+      arguments: { fileId: created.id, question: "What is the renewal?" },
+      requestId: "other-owner-test",
+    });
+    expect(otherOwner.success).toBe(false);
+  });
 });

@@ -344,6 +344,13 @@ export const extractFileRequest = (text: string): Candidate | null => {
     fileId &&
     /\b(?:read|open|extract|summari[sz]e|summarise)\b/i.test(text)
   ) {
+    if (/\bkey\s+information\b|\bkey\s+details\b/i.test(text))
+      return {
+        toolId: "document_key_info",
+        arguments: { fileId, maxChars: 12_000 },
+        confidence: "high",
+        reason: "The request asks for bounded key information from a managed document.",
+      };
     const toolId = /summari[sz]e|summarise/i.test(text)
       ? "document_summarize"
       : /extract/i.test(text)
@@ -356,6 +363,20 @@ export const extractFileRequest = (text: string): Candidate | null => {
       reason: "The request names a stable managed file identity.",
     };
   }
+  if (fileId && /\b(?:answer|question|what|which|who|when|where|why|how)\b/i.test(text)) {
+    const question = text
+      .replace(fileId, "")
+      .replace(/\b(?:document|file)\b/gi, "")
+      .trim();
+    return {
+      toolId: "document_question",
+      arguments: question
+        ? { fileId, question: question.slice(0, 500), maxChars: 4_000 }
+        : null,
+      confidence: "medium",
+      reason: "The request asks a bounded question about a managed document.",
+    };
+  }
   return null;
 };
 
@@ -366,6 +387,45 @@ export const extractCodingRequest = (text: string): Candidate | null => {
     )
   )
     return null;
+  const projectId = text.match(/\bproject_[A-Za-z0-9_-]{8,40}\b/)?.[0];
+  const projectName = text.match(/\bproject\s+([a-zA-Z0-9_-]{1,100})\b/i)?.[1];
+  if (/\b(?:create|new)\s+project\b/i.test(text) && projectName)
+    return {
+      toolId: "coding_workspace",
+      arguments: { operation: "create_project", path: projectName },
+      confidence: "high",
+      reason: "The request names a bounded coding project to create.",
+    };
+  if (/\b(?:list|show)\s+(?:my\s+)?projects?\b/i.test(text))
+    return {
+      toolId: "coding_workspace",
+      arguments: { operation: "list" },
+      confidence: "high",
+      reason: "The request asks for owner-scoped coding projects.",
+    };
+  const kind = text.match(/\b(test|build|lint)(?:s|ing)?\b/i)?.[1]?.toLowerCase();
+  if (kind && projectId && /\b(?:run|execute|check)\b/i.test(text))
+    return {
+      toolId: "coding_workspace",
+      arguments: { operation: "run", projectId, kind: kind === "testing" ? "test" : kind },
+      confidence: "high",
+      reason: "The request names a project-scoped validation operation.",
+    };
+  if (/\b(?:analy[sz]e|inspect)\b/i.test(text) && projectId)
+    return {
+      toolId: "coding_workspace",
+      arguments: { operation: "analyze", projectId },
+      confidence: "high",
+      reason: "The request asks for bounded project analysis.",
+    };
+  const filePath = text.match(/\b(?:file|path)\s+([A-Za-z0-9_./-]{1,240})\b/i)?.[1];
+  if (/\b(?:read|open)\b/i.test(text) && projectId && filePath)
+    return {
+      toolId: "coding_workspace",
+      arguments: { operation: "read", projectId, path: filePath },
+      confidence: "high",
+      reason: "The request identifies a project-relative file path.",
+    };
   return {
     toolId: "coding_workspace",
     arguments: null,
@@ -382,6 +442,17 @@ export const extractBrowserRequest = (text: string): Candidate | null => {
   )
     return null;
   const url = text.match(/https?:\/\/[^\s]+/i)?.[0]?.replace(/[),.!?]+$/, "");
+  const sessionId = text.match(/\bbrowser_[A-Za-z0-9_-]{8,40}\b/)?.[0];
+  const clickTarget = text
+    .match(/\bclick\s+(?:the\s+)?["']?([^"']+?)["']?(?:\s+link|\s+button)?$/i)?.[1]
+    ?.trim();
+  if (clickTarget && sessionId)
+    return {
+      toolId: "browser_workspace",
+      arguments: { operation: "click", sessionId, target: clickTarget },
+      confidence: "high",
+      reason: "The request identifies an owner-scoped browser session and link target.",
+    };
   return {
     toolId: "browser_workspace",
     arguments: url ? { operation: "open", url } : null,

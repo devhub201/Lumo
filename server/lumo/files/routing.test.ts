@@ -60,13 +60,31 @@ describe("Phase 11 deterministic file routing", () => {
         })
       ).toolId
     ).toBe("document_summarize");
+    expect(
+      (
+        await router.route({
+          text: "Extract key information from file file_1234567890",
+          ownerKey: "peter",
+          requestId: "r6",
+        })
+      ).toolId
+    ).toBe("document_key_info");
+    expect(
+      (
+        await router.route({
+          text: "What is the renewal date in file file_1234567890?",
+          ownerKey: "peter",
+          requestId: "r7",
+        })
+      ).toolId
+    ).toBe("document_question");
   });
   it("does not route a missing file search query by guessing", async () => {
     expect(
       await makeRouter().route({
         text: "Search files",
         ownerKey: "peter",
-        requestId: "r6",
+        requestId: "r8",
       })
     ).toMatchObject({ type: "clarification_required" });
   });

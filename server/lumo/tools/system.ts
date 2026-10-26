@@ -12,14 +12,20 @@ import { fileTools } from "../files";
 import { visionTools } from "../vision";
 import { blueprintTools } from "../blueprints";
 import { teachingTools } from "../teaching";
-import { MockRuntimeProvider, RuntimeManager } from "../runtime";
+import { LocalRuntimeProvider, RuntimeManager } from "../runtime";
 import { createWorkflowExecutor } from "../workflows";
 import { createCodeWorkspace, CodingTaskManager } from "../coding";
 import { BrowserWorkspace } from "../browser";
 import { z } from "zod";
 import { GithubManager, MockGithubProvider } from "../github";
 import { GmailManager, MockGmailProvider } from "../gmail";
+import { RealGithubProvider } from "../github/real";
+import { RealGmailProvider } from "../gmail/real";
+import { ENV } from "../../_core/env";
+import { createOAuthTokenCipherFromEnvironment } from "../oauth/crypto";
+import { DatabaseOAuthPersistence } from "../oauth/storage";
 import { PerformanceRecorder, PERFORMANCE_LIMITS } from "../performance";
+import { databaseSensitiveGrantService } from "../security/grants";
 
 export const lumoToolRegistry = new InMemoryToolRegistry();
 export const lumoPermissionManager = new PermissionManager();
@@ -29,32 +35,81 @@ export const lumoToolPermissions = new ManagedToolPermissions(
 );
 export const lumoRuntimeManager = new RuntimeManager(
   lumoPermissionManager,
-  new MockRuntimeProvider()
+  new LocalRuntimeProvider(),
+  databaseSensitiveGrantService
 );
 lumoRuntimeManager.register({
   id: "local-mock",
   provider: "mock-local",
-  displayName: "Local Mock Runtime",
+  displayName: "Local Coding Workspace Runtime",
   connectionState: "ready",
   capabilities: ["shell", "filesystem"],
   authorized: true,
   metadata: { mode: "controlled", environment: "test" },
 });
-export const lumoCodeWorkspace = createCodeWorkspace(lumoPermissionManager);
+export const lumoCodeWorkspace = createCodeWorkspace(
+  lumoPermissionManager,
+  databaseSensitiveGrantService
+);
 export const lumoCodingTasks = new CodingTaskManager(
   lumoPermissionManager,
-  lumoRuntimeManager
+  lumoRuntimeManager,
+  lumoCodeWorkspace
 );
 export const lumoBrowserWorkspace = new BrowserWorkspace(lumoPermissionManager);
 export const lumoGithubProvider = new MockGithubProvider();
 export const lumoGithub = new GithubManager(
   lumoPermissionManager,
-  lumoGithubProvider
+  owner => {
+    try {
+      const cipher = createOAuthTokenCipherFromEnvironment();
+      if (
+        cipher &&
+        ENV.githubOAuthClientId &&
+        ENV.githubOAuthClientSecret
+      )
+        return new RealGithubProvider(
+          owner,
+          new DatabaseOAuthPersistence(),
+          cipher,
+          {
+            clientId: ENV.githubOAuthClientId,
+            clientSecret: ENV.githubOAuthClientSecret,
+          }
+        );
+    } catch {
+      // OAuth remains unavailable until valid secrets are configured.
+    }
+    return lumoGithubProvider;
+  },
+  databaseSensitiveGrantService
 );
 export const lumoGmailProvider = new MockGmailProvider();
 export const lumoGmail = new GmailManager(
   lumoPermissionManager,
-  lumoGmailProvider
+  owner => {
+    try {
+      const cipher = createOAuthTokenCipherFromEnvironment();
+      if (
+        cipher &&
+        ENV.googleOAuthClientId &&
+        ENV.googleOAuthClientSecret
+      )
+        return new RealGmailProvider(
+          owner,
+          new DatabaseOAuthPersistence(),
+          cipher,
+          {
+            clientId: ENV.googleOAuthClientId,
+            clientSecret: ENV.googleOAuthClientSecret,
+          }
+        );
+    } catch {
+      // OAuth remains unavailable until valid secrets are configured.
+    }
+    return lumoGmailProvider;
+  },
+  databaseSensitiveGrantService
 );
 export const lumoPerformance = new PerformanceRecorder(
   PERFORMANCE_LIMITS.maxTelemetryMetrics
@@ -81,6 +136,7 @@ lumoToolRegistry.register({
       projectId: z.string().max(80).optional(),
       path: z.string().max(240).optional(),
       content: z.string().max(1_000_000).optional(),
+      kind: z.enum(["test", "build", "lint"]).optional(),
     })
     .nullable(),
   outputSchema: z.unknown(),
@@ -114,6 +170,33 @@ lumoToolRegistry.register({
         input.content,
         "create"
       );
+    if (input.operation === "delete" && input.projectId && input.path)
+      return lumoCodeWorkspace.deleteFile(
+        context.ownerKey,
+        input.projectId,
+        input.path,
+        context.authorization
+      );
+    if (input.operation === "snapshot" && input.projectId)
+      return lumoCodeWorkspace.snapshot(context.ownerKey, input.projectId);
+    if (input.operation === "analyze" && input.projectId)
+      return lumoCodeWorkspace.analyze(context.ownerKey, input.projectId);
+    if (input.operation === "run" && input.projectId && input.kind) {
+      const task = lumoCodingTasks.create(
+        context.ownerKey,
+        input.projectId,
+        context.requestId
+      );
+      return {
+        task,
+        result: await lumoCodingTasks.run(
+          task,
+          input.kind,
+          context.ownerKey,
+          context.authorization
+        ),
+      };
+    }
     return {
       ok: false,
       needs: "supported coding operation and required fields",
@@ -131,6 +214,9 @@ lumoToolRegistry.register({
       operation: z.string().max(40),
       sessionId: z.string().max(80).optional(),
       url: z.string().max(2048).optional(),
+      actionId: z.string().max(80).optional(),
+      target: z.string().max(300).optional(),
+      value: z.string().max(2000).optional(),
     })
     .nullable(),
   outputSchema: z.unknown(),
@@ -140,14 +226,26 @@ lumoToolRegistry.register({
     if (!input) return { ok: false, needs: "operation and browser details" };
     if (input.operation === "create_session")
       return lumoBrowserWorkspace.createSession(context.ownerKey);
-    if (input.operation === "open" && input.sessionId && input.url)
-      return lumoBrowserWorkspace.open(
-        context.ownerKey,
-        input.sessionId,
-        input.url
-      );
+    if (input.operation === "open" && input.url) {
+      const sessionId =
+        input.sessionId ??
+        lumoBrowserWorkspace.createSession(context.ownerKey).id;
+      return lumoBrowserWorkspace.open(context.ownerKey, sessionId, input.url);
+    }
     if (input.operation === "snapshot" && input.sessionId)
       return lumoBrowserWorkspace.snapshot(context.ownerKey, input.sessionId);
+    if (
+      ["click", "select", "type", "scroll", "extract", "navigate"].includes(
+        input.operation
+      ) &&
+      input.sessionId
+    )
+      return lumoBrowserWorkspace.action(context.ownerKey, input.sessionId, {
+        id: input.actionId ?? context.requestId,
+        type: input.operation as "click" | "select" | "type" | "scroll" | "extract" | "navigate",
+        target: input.target,
+        value: input.value ?? input.url,
+      });
     return {
       ok: false,
       needs: "supported browser operation and required fields",
@@ -238,7 +336,8 @@ export const lumoToolExecutor = new ToolExecutor(
   lumoToolRegistry,
   lumoToolPermissions,
   lumoLogger,
-  lumoPerformance
+  lumoPerformance,
+  databaseSensitiveGrantService
 );
 
 export const lumoToolRouter = createToolRouter({
