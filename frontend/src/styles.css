@@ -1609,6 +1609,34 @@ h3 {
   margin-top: 7px;
   line-height: 1.8;
 }
+.local-ai-download-progress {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+}
+.local-ai-progress-track {
+  overflow: hidden;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--muted) 70%, transparent);
+}
+.local-ai-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 0.2s ease;
+}
+.local-ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+}
+.local-ai-privacy {
+  max-width: 75ch;
+  line-height: 1.7;
+}
 .name-input {
   margin: 0;
   width: 166px;

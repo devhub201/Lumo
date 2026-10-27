@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from "react";
-import { ArrowUp, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getSessionIntegrations, type VoiceSessionState } from "@/lib/lumo/integrations";
 import { Orb } from "./orb";
@@ -153,18 +153,18 @@ function AttachmentControls({
   );
 }
 // Submit is composed below to keep chat status on the AI Elements submit primitive.
-const SubmitContext = createContext({ loading: false, enabled: false, stop: () => {} });
+const SubmitContext = createContext({ loading: false, enabled: false, canStop: true, stop: () => {} });
 function SubmitControl() {
-  const { loading, enabled, stop } = useContext(SubmitContext);
+  const { loading, enabled, canStop, stop } = useContext(SubmitContext);
   return (
     <PromptInputSubmit
-      status={loading ? "submitted" : "ready"}
-      onStop={stop}
-      disabled={!loading && !enabled}
-      aria-label={loading ? "Stop response" : "Send message"}
-      title={loading ? "Stop response" : "Send message"}
+      status={loading && canStop ? "submitted" : "ready"}
+      {...(canStop ? { onStop: stop } : {})}
+      disabled={loading ? !canStop : !enabled}
+      aria-label={loading ? (canStop ? "Stop response" : "Generating on device") : "Send message"}
+      title={loading ? (canStop ? "Stop response" : "Generating on device") : "Send message"}
     >
-      {loading ? <Square /> : <ArrowUp />}
+      {loading ? (canStop ? <Square /> : <Loader2 className="animate-spin" />) : <ArrowUp />}
     </PromptInputSubmit>
   );
 }
@@ -172,6 +172,7 @@ export function ChatComposer({
   draft,
   setDraft,
   loading,
+  canStop = true,
   onSend,
   stop,
   onError,
@@ -179,6 +180,7 @@ export function ChatComposer({
   draft: string;
   setDraft: (draft: string) => void;
   loading: boolean;
+  canStop?: boolean;
   onSend: (message: PromptInputMessage) => void;
   stop: () => void;
   onError: (message: string) => void;
@@ -191,7 +193,7 @@ export function ChatComposer({
       textarea.current?.focus({ preventScroll: true });
   }, [loading]);
   return (
-    <SubmitContext.Provider value={{ loading, enabled: !!draft.trim(), stop }}>
+      <SubmitContext.Provider value={{ loading, enabled: !!draft.trim(), canStop, stop }}>
       <PromptInput
         className="chat-composer"
         multiple

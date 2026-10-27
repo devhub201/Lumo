@@ -12,6 +12,7 @@ import {
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { PreferencesProvider, usePreferences } from "./preferences";
+import { isOnDeviceAiNative } from "@/lib/lumo/local-ai";
 
 const workspacePaths = ["/workspaces", "/voice", "/vision", "/tools"];
 const navigation = [
@@ -47,6 +48,7 @@ function InnerShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { preferences } = usePreferences();
   const [help, setHelp] = useState(false);
+  const onDeviceAi = isOnDeviceAiNative();
   const label =
     pathname === "/" ? "Home" : (titles.find(([p]) => pathname.startsWith(p))?.[1] ?? "LUMO");
   return (
@@ -83,8 +85,8 @@ function InnerShell({ children }: { children: ReactNode }) {
           </Button>
           <div
             className="profile-avatar"
-            title="Private access via Tailscale"
-            aria-label="Private access via Tailscale"
+            title={onDeviceAi ? "LUMO runs on this phone" : "Private access via Tailscale"}
+            aria-label={onDeviceAi ? "LUMO runs on this phone" : "Private access via Tailscale"}
           >
             <ShieldCheck />
           </div>
@@ -102,7 +104,7 @@ function InnerShell({ children }: { children: ReactNode }) {
           </div>
           <div className="topbar-right">
             <span className="preview-label">
-              Private workspace <span>Tailscale</span>
+              {onDeviceAi ? <>Private local workspace <span>This phone</span></> : <>Private workspace <span>Tailscale</span></>}
             </span>
             <Button asChild variant="ghost" className="workspace-selector">
               <Link to="/settings">
@@ -115,11 +117,11 @@ function InnerShell({ children }: { children: ReactNode }) {
         <main>{children}</main>
         <footer className="system-footer">
           <span>
-            <span className="footer-dot" /> Private tailnet
+            <span className="footer-dot" /> {onDeviceAi ? "On-device AI" : "Private tailnet"}
           </span>
           <span>
-            LUMO <span className="footer-version">v0.1</span>
-            <span className="footer-divider">/</span>Connected securely
+            <span>LUMO <span className="footer-version">{onDeviceAi ? "v0.2" : "v0.1"}</span>
+            <span className="footer-divider">/</span>{onDeviceAi ? "Private · no account" : "Connected securely"}</span>
           </span>
           <span className="footer-end">
             <Command size={12} /> Designed for focus
@@ -127,13 +129,13 @@ function InnerShell({ children }: { children: ReactNode }) {
         </footer>
       </div>
       {help && (
-        <div className="help-popover" role="dialog" aria-label="About this preview">
+        <div className="help-popover" role="dialog" aria-label={onDeviceAi ? "About LUMO" : "About this preview"}>
           <Sparkles size={20} />
-          <h3>A workspace in the making.</h3>
+          <h3>{onDeviceAi ? "Your private local assistant." : "A workspace in the making."}</h3>
           <p>
-            Camera, microphone, local files, the browser view, and preferences work in supported
-            browsers. AI, terminal execution, speech processing, accounts, and integrations require
-            a connected provider.
+            {onDeviceAi
+              ? "Download the model once in Settings. Afterwards, LUMO can answer on this phone without internet, a sign-in, a VPS, or an OpenAI key. The small local model can make mistakes and does not browse the web."
+              : "Camera, microphone, local files, the browser view, and preferences work in supported browsers. AI, terminal execution, speech processing, accounts, and integrations require a connected provider."}
           </p>
           <Button variant="outline" onClick={() => setHelp(false)}>
             Got it

@@ -15,10 +15,40 @@ export interface ChatConversation {
 const initial: ChatConversation[] = [
   { id: "first", title: "New conversation", messages: [], draft: "" },
 ];
-let conversations = initial;
+const storageKey = "lumo:on-device-conversations:v1";
+function loadConversations(): ChatConversation[] {
+  if (typeof window === "undefined") return initial;
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? "null");
+    if (!Array.isArray(parsed)) return initial;
+    const valid = parsed.filter(
+      (item): item is ChatConversation =>
+        Boolean(item) &&
+        typeof item.id === "string" &&
+        typeof item.title === "string" &&
+        Array.isArray(item.messages) &&
+        typeof item.draft === "string",
+    );
+    return valid.length ? valid : initial;
+  } catch {
+    return initial;
+  }
+}
+let conversations = loadConversations();
 const listeners = new Set<() => void>();
 const publish = (next: ChatConversation[]) => {
   conversations = next;
+  if (typeof window !== "undefined") {
+    try {
+      const persisted = next.slice(-20).map((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.slice(-80),
+      }));
+      window.localStorage.setItem(storageKey, JSON.stringify(persisted));
+    } catch {
+      // Keep the current session usable when device storage is full or disabled.
+    }
+  }
   listeners.forEach((listener) => listener());
 };
 export const chatStore = {
