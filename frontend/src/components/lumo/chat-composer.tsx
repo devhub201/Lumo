@@ -27,7 +27,9 @@ function VoiceOrbControl({
   onTranscript: (transcript: string) => void;
   unavailable: boolean;
 }) {
-  const [state, setState] = useState<VoiceSessionState | "connecting" | "unavailable">("unavailable");
+  const [state, setState] = useState<VoiceSessionState | "connecting" | "unavailable">(
+    "unavailable",
+  );
   const voice = useRef<ReturnType<typeof getSessionIntegrations>["voice"] | null>(null);
   const controller = useRef<AbortController | null>(null);
 
@@ -48,7 +50,12 @@ function VoiceOrbControl({
   };
 
   const toggle = () => {
-    if (state === "connecting" || state === "listening" || state === "processing" || state === "speaking") {
+    if (
+      state === "connecting" ||
+      state === "listening" ||
+      state === "processing" ||
+      state === "speaking"
+    ) {
       stop();
       return;
     }
@@ -61,14 +68,11 @@ function VoiceOrbControl({
     controller.current = nextController;
     setState("connecting");
     void adapter
-      .start(
-        (event) => {
-          if (nextController.signal.aborted) return;
-          setState(event.state);
-          if (event.final && event.transcript?.trim()) onTranscript(event.transcript.trim());
-        },
-        nextController.signal,
-      )
+      .start((event) => {
+        if (nextController.signal.aborted) return;
+        setState(event.state);
+        if (event.final && event.transcript?.trim()) onTranscript(event.transcript.trim());
+      }, nextController.signal)
       .catch(() => {
         if (!nextController.signal.aborted) setState("unavailable");
       });
@@ -153,7 +157,12 @@ function AttachmentControls({
   );
 }
 // Submit is composed below to keep chat status on the AI Elements submit primitive.
-const SubmitContext = createContext({ loading: false, enabled: false, canStop: true, stop: () => {} });
+const SubmitContext = createContext({
+  loading: false,
+  enabled: false,
+  canStop: true,
+  stop: () => {},
+});
 function SubmitControl() {
   const { loading, enabled, canStop, stop } = useContext(SubmitContext);
   return (
@@ -164,7 +173,7 @@ function SubmitControl() {
       aria-label={loading ? (canStop ? "Stop response" : "Generating on device") : "Send message"}
       title={loading ? (canStop ? "Stop response" : "Generating on device") : "Send message"}
     >
-      {loading ? (canStop ? <Square /> : <Loader2 className="animate-spin" />) : <ArrowUp />}
+      {loading ? canStop ? <Square /> : <Loader2 className="animate-spin" /> : <ArrowUp />}
     </PromptInputSubmit>
   );
 }
@@ -193,7 +202,7 @@ export function ChatComposer({
       textarea.current?.focus({ preventScroll: true });
   }, [loading]);
   return (
-      <SubmitContext.Provider value={{ loading, enabled: !!draft.trim(), canStop, stop }}>
+    <SubmitContext.Provider value={{ loading, enabled: !!draft.trim(), canStop, stop }}>
       <PromptInput
         className="chat-composer"
         multiple

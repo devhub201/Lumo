@@ -13,6 +13,7 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { PreferencesProvider, usePreferences } from "./preferences";
 import { isOnDeviceAiNative } from "@/lib/lumo/local-ai";
+import { SpotifyOAuthCallbackListener } from "./spotify-connect";
 
 const workspacePaths = ["/workspaces", "/voice", "/vision", "/tools"];
 const navigation = [
@@ -53,6 +54,7 @@ function InnerShell({ children }: { children: ReactNode }) {
     pathname === "/" ? "Home" : (titles.find(([p]) => pathname.startsWith(p))?.[1] ?? "LUMO");
   return (
     <div className="app-shell">
+      <SpotifyOAuthCallbackListener />
       <aside className="nav-rail">
         <Link to="/" className="rail-brand" aria-label="LUMO home">
           <Aperture />
@@ -104,7 +106,15 @@ function InnerShell({ children }: { children: ReactNode }) {
           </div>
           <div className="topbar-right">
             <span className="preview-label">
-              {onDeviceAi ? <>Private local workspace <span>This phone</span></> : <>Private workspace <span>Tailscale</span></>}
+              {onDeviceAi ? (
+                <>
+                  Private local workspace <span>This phone</span>
+                </>
+              ) : (
+                <>
+                  Private workspace <span>Tailscale</span>
+                </>
+              )}
             </span>
             <Button asChild variant="ghost" className="workspace-selector">
               <Link to="/settings">
@@ -120,8 +130,11 @@ function InnerShell({ children }: { children: ReactNode }) {
             <span className="footer-dot" /> {onDeviceAi ? "On-device AI" : "Private tailnet"}
           </span>
           <span>
-            <span>LUMO <span className="footer-version">{onDeviceAi ? "v0.2" : "v0.1"}</span>
-            <span className="footer-divider">/</span>{onDeviceAi ? "Private · no account" : "Connected securely"}</span>
+            <span>
+              LUMO <span className="footer-version">{onDeviceAi ? "v0.2" : "v0.1"}</span>
+              <span className="footer-divider">/</span>
+              {onDeviceAi ? "Private · no account" : "Connected securely"}
+            </span>
           </span>
           <span className="footer-end">
             <Command size={12} /> Designed for focus
@@ -129,7 +142,11 @@ function InnerShell({ children }: { children: ReactNode }) {
         </footer>
       </div>
       {help && (
-        <div className="help-popover" role="dialog" aria-label={onDeviceAi ? "About LUMO" : "About this preview"}>
+        <div
+          className="help-popover"
+          role="dialog"
+          aria-label={onDeviceAi ? "About LUMO" : "About this preview"}
+        >
           <Sparkles size={20} />
           <h3>{onDeviceAi ? "Your private local assistant." : "A workspace in the making."}</h3>
           <p>

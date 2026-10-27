@@ -7,11 +7,9 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.Message
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -140,16 +138,12 @@ class LumoLocalAiPlugin : Plugin() {
     executor.execute {
       try {
         val activeEngine = getOrCreateEngine()
-        val lastUser = parsed.last().content
-        val history = makeHistory(parsed.dropLast(1))
-        val config = ConversationConfig(
-          systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
-          initialMessages = history,
-        )
-        val answer = activeEngine.createConversation(config).use { conversation ->
+        val prompt = makePrompt(parsed.dropLast(1), parsed.last().content)
+        // This model bundle's template cannot handle system/initial-message prefaces on this runtime.
+        // Flatten chat context into one text turn and create a fresh one-turn conversation per request.
+        val answer = activeEngine.createConversation(ConversationConfig()).use { conversation ->
           conversation.sendMessage(
-            lastUser,
-            extraContext = mapOf("enable_thinking" to false),
+            prompt,
             maxOutputToken = MAX_OUTPUT_TOKENS,
           ).toString().trim()
         }
@@ -221,16 +215,24 @@ class LumoLocalAiPlugin : Plugin() {
     return messages.takeLast(MAX_HISTORY_MESSAGES)
   }
 
-  private fun makeHistory(entries: List<ChatEntry>): List<Message> {
+  private fun makePrompt(entries: List<ChatEntry>, latest: String): String {
+    val prompt = StringBuilder(SYSTEM_INSTRUCTION).append("\n\n/no_think")
     var remaining = MAX_HISTORY_CHARS
     val recentFirst = entries.asReversed().mapNotNull { entry ->
       if (remaining <= 0) return@mapNotNull null
       val content = entry.content.take(remaining)
       remaining -= content.length
-      if (content.isBlank()) null
-      else if (entry.role == "user") Message.user(content) else Message.model(content)
+      if (content.isBlank()) null else entry.copy(content = content)
     }
-    return recentFirst.asReversed()
+    if (recentFirst.isNotEmpty()) {
+      prompt.append("\n\nPrevious conversation (for context only):\n")
+      recentFirst.asReversed().forEach { entry ->
+        val speaker = if (entry.role == "user") "User" else "Assistant"
+        prompt.append(speaker).append(": ").append(entry.content).append('\n')
+      }
+    }
+    prompt.append("\nRespond to this latest user message:\n").append(latest)
+    return prompt.toString()
   }
 
   private fun downloadTo(destination: File) {

@@ -18,11 +18,21 @@ export interface MusicState {
   repeat: boolean;
   queue: MusicTrack[];
 }
-export type MusicAction = "toggle" | "next" | "previous" | "shuffle" | "repeat" | "seek" | "select";
+export type MusicAction =
+  | "toggle"
+  | "play"
+  | "pause"
+  | "resume"
+  | "next"
+  | "previous"
+  | "shuffle"
+  | "repeat"
+  | "seek"
+  | "select";
 /** Implement with the Spotify Web API / SDK. Every call returns the real player state. */
 export interface LumoMusicAdapter {
   play: (query: string, signal: AbortSignal) => Promise<MusicState>;
-  control: (action: MusicAction, value?: number | string) => Promise<MusicState>;
+  control: (action: MusicAction, value?: number | string | boolean) => Promise<MusicState>;
   /** Optional push updates from the player; returns an unsubscribe function. */
   subscribe?: (listener: (state: MusicState) => void) => () => void;
 }
@@ -39,7 +49,8 @@ export interface LumoIntegrations {
 }
 export function getIntegrations(): LumoIntegrations {
   if (typeof window === "undefined") return {};
-  const injected = (window as Window & { lumoIntegrations?: LumoIntegrations }).lumoIntegrations ?? {};
+  const injected =
+    (window as Window & { lumoIntegrations?: LumoIntegrations }).lumoIntegrations ?? {};
   if (isOnDeviceAiNative()) return { ...injected, chat: localOnDeviceChat };
   return {
     ...getBackendIntegrations(),

@@ -67,7 +67,8 @@ export async function localOnDeviceChat(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   signal: AbortSignal,
 ) {
-  if (!isOnDeviceAiNative()) throw new Error("On-device AI is available in the standalone Android app only.");
+  if (!isOnDeviceAiNative())
+    throw new Error("On-device AI is available in the standalone Android app only.");
   if (signal.aborted) throw new DOMException("Stopped", "AbortError");
   const result = await NativeLocalAi.generate({ messages });
   if (signal.aborted) throw new DOMException("Stopped", "AbortError");

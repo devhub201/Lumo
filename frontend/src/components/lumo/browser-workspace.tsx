@@ -89,14 +89,18 @@ export function CompactAgentBrowserPanel() {
         <div className="agent-browser-body">
           <div className="agent-browser-url" title={agentState?.url ?? undefined}>
             <Globe />
-            <span>{agentState?.url ?? (sessionConfirmed ? "No page open" : "No browser session")}</span>
+            <span>
+              {agentState?.url ?? (sessionConfirmed ? "No page open" : "No browser session")}
+            </span>
           </div>
           <div className="agent-browser-viewport">
             {agentState?.frame && sessionConfirmed ? (
               <img
                 className="agent-browser-frame"
                 src={agentState.frame}
-                alt={agentState.title ? `Live browser view: ${agentState.title}` : "Live browser view"}
+                alt={
+                  agentState.title ? `Live browser view: ${agentState.title}` : "Live browser view"
+                }
               />
             ) : (
               <p>

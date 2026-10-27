@@ -174,16 +174,20 @@ export function SettingsScreen() {
               <span className="preview-chip">Built in</span>
             </div>
           </section>
-          {!onDeviceAi && (
-            <section className="settings-section">
-              <div className="settings-section-title">
-                <Plug />
-                <h2>Connected integrations</h2>
-              </div>
-              <IntegrationsPanel />
-              <SpotifyConnect />
-            </section>
-          )}
+          <section className="settings-section">
+            <div className="settings-section-title">
+              <Plug />
+              <h2>Connected integrations</h2>
+            </div>
+            {onDeviceAi && (
+              <p className="metadata">
+                Spotify uses the internet for playback. Your LUMO AI prompts still stay on this
+                phone.
+              </p>
+            )}
+            {!onDeviceAi && <IntegrationsPanel />}
+            <SpotifyConnect />
+          </section>
           <section className="settings-section">
             <div className="settings-section-title">
               <ShieldCheck />
@@ -217,17 +221,17 @@ export function SettingsScreen() {
             </div>
             {!onDeviceAi && (
               <div className="permission-row">
-              <Fingerprint />
-              <div>
-                <strong>Identity verification</strong>
-                <p>
-                  No biometric provider is connected. No secure identity or account session is
-                  created by this preview.
-                </p>
-              </div>
-              <Link to="/auth" aria-label="Open identity verification">
-                <ChevronRight />
-              </Link>
+                <Fingerprint />
+                <div>
+                  <strong>Identity verification</strong>
+                  <p>
+                    No biometric provider is connected. No secure identity or account session is
+                    created by this preview.
+                  </p>
+                </div>
+                <Link to="/auth" aria-label="Open identity verification">
+                  <ChevronRight />
+                </Link>
               </div>
             )}
           </section>
@@ -257,7 +261,9 @@ export function SettingsScreen() {
             </div>
             <div>
               <dt>Storage</dt>
-              <dd>{onDeviceAi ? "Chats and model on this device" : "Preferences on this device"}</dd>
+              <dd>
+                {onDeviceAi ? "Chats and model on this device" : "Preferences on this device"}
+              </dd>
             </div>
           </dl>
           <span className="metadata">Built for thoughtful interaction.</span>

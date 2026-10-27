@@ -5103,6 +5103,46 @@ body {
   padding-inline: 0;
   color: var(--muted-foreground);
 }
+.spotify-client-setup {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0 48px;
+  border: 1px solid var(--subtle-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: color-mix(in oklch, var(--card) 72%, transparent);
+}
+.spotify-client-setup label {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+.spotify-client-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spotify-client-entry .text-input {
+  min-width: 0;
+  flex: 1;
+}
+.spotify-client-setup p {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.spotify-client-setup .spotify-redirect-uri {
+  display: block;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--subtle-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  user-select: all;
+}
 .music-embed {
   border-color: color-mix(in oklch, var(--primary) 18%, var(--border));
   background: linear-gradient(
@@ -5135,6 +5175,13 @@ body {
   }
   .spotify-permission-note {
     padding-left: 0;
+  }
+  .spotify-client-setup {
+    margin-left: 0;
+  }
+  .spotify-client-entry {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 @media (max-width: 480px) {
