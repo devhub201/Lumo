@@ -108,6 +108,12 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.devhub201.lumo'"
           echo "Debug APK size: $(stat -c%s "$APK") bytes"
+      - name: Verify portrait and landscape support in APK
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml \
+            | tee /tmp/lumo-manifest.xmltree \
+            | grep -Eq 'android:screenOrientation.*=(0x0*4|4|sensor)([[:space:]]|$)'
       - name: Verify APK contains the supplied LUMO frontend
         run: python3 scripts/verify-android-apk.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Upload verified debug APK artifact

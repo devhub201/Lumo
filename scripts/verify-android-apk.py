@@ -14,6 +14,11 @@ REQUIRED_JS_MARKERS = (
     "Spotify Developer app Client ID",
     "LumoLocalAi",
 )
+REQUIRED_NATIVE_AI_MARKERS = (
+    "Previous conversation (for context only):",
+    "Respond to this latest user message:",
+    "/no_think",
+)
 
 
 def fail(message: str) -> None:
@@ -80,7 +85,11 @@ with archive:
     dex_files = [name for name in names if re.fullmatch(r"classes(?:\d+)?\.dex", name)]
     if not dex_files:
         fail("compiled Android DEX files are missing")
-    if not any(b"LumoLocalAiPlugin" in archive.read(name) for name in dex_files):
+    dex_text = b"\n".join(archive.read(name) for name in dex_files)
+    if b"LumoLocalAiPlugin" not in dex_text:
         fail("compiled native on-device AI plugin is missing from APK DEX")
+    for marker in REQUIRED_NATIVE_AI_MARKERS:
+        if marker.encode("utf-8") not in dex_text:
+            fail(f"corrected native chat prompt path is missing from APK DEX: {marker}")
 
 print("Verified APK: supplied LUMO UI, local AI, Spotify, native bridge, local assets, and no Peter Mode UI or remote origin.")
