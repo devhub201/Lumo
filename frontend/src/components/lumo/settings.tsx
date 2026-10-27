@@ -19,8 +19,11 @@ import { PageHeading } from "./ui";
 import { AccountSection } from "./account";
 import { IntegrationsPanel } from "./integrations-panel";
 import { SpotifyConnect } from "./spotify-connect";
+import { LocalAiSettings } from "./local-ai-settings";
+import { isOnDeviceAiNative } from "@/lib/lumo/local-ai";
 export function SettingsScreen() {
   const { preferences, update } = usePreferences();
+  const onDeviceAi = isOnDeviceAiNative();
   return (
     <div className="screen-page settings-page">
       <PageHeading
@@ -30,6 +33,7 @@ export function SettingsScreen() {
       />
       <div className="settings-layout">
         <div className="settings-main">
+          {onDeviceAi && <LocalAiSettings />}
           <section className="settings-section">
             <div className="settings-section-title">
               <SlidersHorizontal />
@@ -135,13 +139,15 @@ export function SettingsScreen() {
               />
             </label>
           </section>
-          <section className="settings-section">
-            <div className="settings-section-title">
-              <UserRound />
-              <h2>Account</h2>
-            </div>
-            <AccountSection />
-          </section>
+          {!onDeviceAi && (
+            <section className="settings-section">
+              <div className="settings-section-title">
+                <UserRound />
+                <h2>Account</h2>
+              </div>
+              <AccountSection />
+            </section>
+          )}
           <section className="settings-section">
             <div className="settings-section-title">
               <Mic />
@@ -168,14 +174,16 @@ export function SettingsScreen() {
               <span className="preview-chip">Built in</span>
             </div>
           </section>
-          <section className="settings-section">
-            <div className="settings-section-title">
-              <Plug />
-              <h2>Connected integrations</h2>
-            </div>
-            <IntegrationsPanel />
-            <SpotifyConnect />
-          </section>
+          {!onDeviceAi && (
+            <section className="settings-section">
+              <div className="settings-section-title">
+                <Plug />
+                <h2>Connected integrations</h2>
+              </div>
+              <IntegrationsPanel />
+              <SpotifyConnect />
+            </section>
+          )}
           <section className="settings-section">
             <div className="settings-section-title">
               <ShieldCheck />
@@ -207,7 +215,8 @@ export function SettingsScreen() {
                 <ChevronRight />
               </Link>
             </div>
-            <div className="permission-row">
+            {!onDeviceAi && (
+              <div className="permission-row">
               <Fingerprint />
               <div>
                 <strong>Identity verification</strong>
@@ -219,7 +228,8 @@ export function SettingsScreen() {
               <Link to="/auth" aria-label="Open identity verification">
                 <ChevronRight />
               </Link>
-            </div>
+              </div>
+            )}
           </section>
         </div>
         <aside className="settings-about">
@@ -235,19 +245,19 @@ export function SettingsScreen() {
             </div>
             <div>
               <dt>Version</dt>
-              <dd>0.1 · Frontend preview</dd>
+              <dd>{onDeviceAi ? "0.2 · On-device AI" : "0.1 · Frontend preview"}</dd>
             </div>
             <div>
               <dt>AI provider</dt>
-              <dd>Not connected</dd>
+              <dd>{onDeviceAi ? "LiteRT-LM · local" : "Not connected"}</dd>
             </div>
             <div>
               <dt>Native bridge</dt>
-              <dd>Not connected</dd>
+              <dd>{onDeviceAi ? "LiteRT-LM" : "Not connected"}</dd>
             </div>
             <div>
               <dt>Storage</dt>
-              <dd>Preferences on this device</dd>
+              <dd>{onDeviceAi ? "Chats and model on this device" : "Preferences on this device"}</dd>
             </div>
           </dl>
           <span className="metadata">Built for thoughtful interaction.</span>

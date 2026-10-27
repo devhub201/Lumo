@@ -1,4 +1,5 @@
 import { getBackendIntegrations } from "./backend";
+import { isOnDeviceAiNative, localOnDeviceChat } from "./local-ai";
 
 /** Native/API adapters are injected by the host or the configured LUMO backend. */
 export interface MusicTrack {
@@ -38,9 +39,11 @@ export interface LumoIntegrations {
 }
 export function getIntegrations(): LumoIntegrations {
   if (typeof window === "undefined") return {};
+  const injected = (window as Window & { lumoIntegrations?: LumoIntegrations }).lumoIntegrations ?? {};
+  if (isOnDeviceAiNative()) return { ...injected, chat: localOnDeviceChat };
   return {
     ...getBackendIntegrations(),
-    ...((window as Window & { lumoIntegrations?: LumoIntegrations }).lumoIntegrations ?? {}),
+    ...injected,
   };
 }
 /** Recognises "play …" style requests until the AI provider can call a music tool itself. */

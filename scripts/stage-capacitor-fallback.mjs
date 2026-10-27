@@ -4,8 +4,15 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = path.join(root, "dist", "public");
-const value = process.env.LUMO_CAPACITOR_SERVER_URL;
-if (!value) throw new Error("Run validate-android-origin.mjs before staging the Capacitor fallback.");
+const value = process.env.LUMO_CAPACITOR_SERVER_URL?.trim();
+const mode = process.env.LUMO_ANDROID_BUILD_MODE ?? (value ? "tailscale" : "on_device_ai");
+if (mode === "on_device_ai") {
+  console.log("On-device AI build: leaving the bundled frontend in place; no online fallback is needed.");
+  process.exit(0);
+}
+if (mode !== "tailscale" || !value) {
+  throw new Error("Set a valid Android build mode and run validate-android-origin.mjs first.");
+}
 const url = new URL(value);
 const retryUrl = url.toString().replace(/[&<>"']/g, (character) => {
   const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };

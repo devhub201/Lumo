@@ -49,6 +49,7 @@ import { Orb } from "./orb";
 import { Notice, Status } from "./ui";
 import { ChatComposer } from "./chat-composer";
 import { CompactAgentBrowserPanel } from "./browser-workspace";
+import { getLocalAiStatus, isOnDeviceAiNative } from "@/lib/lumo/local-ai";
 
 export function ChatScreen({
   prompt = "",
@@ -64,15 +65,29 @@ export function ChatScreen({
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
   const [connected, setConnected] = useState(false);
+  const onDeviceAi = isOnDeviceAiNative();
+  const [localModelInstalled, setLocalModelInstalled] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const layout = useRef<HTMLDivElement>(null);
   const messages = conversation?.messages ?? [];
   useEffect(() => {
     setConnected(!!getIntegrations().chat);
+    if (onDeviceAi) {
+      void getLocalAiStatus()
+        .then((status) => setLocalModelInstalled(status.downloaded))
+        .catch(() => setLocalModelInstalled(false));
+    }
     const current = chatStore.get().find((c) => c.id === threadId);
     if (prompt && current && !current.draft) chatStore.update(threadId, { draft: prompt });
     return () => abort.current?.abort();
-  }, [threadId, prompt]);
+  }, [threadId, prompt, onDeviceAi]);
+  const connectionLabel = onDeviceAi
+    ? localModelInstalled
+      ? "On-device AI ready"
+      : "Download model in Settings"
+    : connected
+      ? "Provider connected"
+      : "Demo · AI not connected";
   useEffect(() => {
     const viewport = window.visualViewport;
     const resize = () => {
@@ -119,7 +134,8 @@ export function ChatScreen({
         return;
       }
       const last = next[next.length - 1];
-      const musicQuery = last?.role === "user" ? parseMusicRequest(messageText(last)) : null;
+      const musicQuery =
+        !isOnDeviceAiNative() && last?.role === "user" ? parseMusicRequest(messageText(last)) : null;
       if (musicQuery) {
         const music = getMusicAdapter();
         const state = music ? await music.play(musicQuery, controller.signal) : undefined;
@@ -237,7 +253,7 @@ export function ChatScreen({
     return (
       <section className="screen-page">
         <h1>Conversation unavailable</h1>
-        <p>Conversation history lasts only for this visit.</p>
+        <p>Conversation history is saved on this device when storage is available.</p>
         <Button onClick={newChat}>
           <Plus />
           New chat
@@ -259,7 +275,7 @@ export function ChatScreen({
             <Plus />
           </Button>
         </div>
-        <p className="metadata">This visit only</p>
+        <p className="metadata">Saved on this device</p>
         <div className="conversation-list">
           {conversations.map((c) => (
             <Button
@@ -274,16 +290,16 @@ export function ChatScreen({
           ))}
         </div>
         <div className="conversation-nav-bottom">
-          <Status warning={!connected}>
-            {connected ? "Provider connected" : "Demo · AI not connected"}
+          <Status warning={!connected || (onDeviceAi && !localModelInstalled)}>
+            {connectionLabel}
           </Status>
-          <p>History stays in this workspace for this visit.</p>
+          <p>History stays on this device.</p>
         </div>
       </aside>
       <section className="chat-main">
         <header className="chat-header">
           <div className="min-w-0">
-            <span className="eyebrow">{connected ? "Conversation" : "Preview conversation"}</span>
+            <span className="eyebrow">{onDeviceAi ? "On-device conversation" : connected ? "Conversation" : "Preview conversation"}</span>
             <h1 title={conversation.title}>{conversation.title}</h1>
           </div>
           <div className="chat-header-actions">
@@ -314,7 +330,7 @@ export function ChatScreen({
                   Export conversation
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={!messages.length}
+                  disabled={!messages.length || loading}
                   onSelect={() => {
                     stop();
                     chatStore.update(threadId, { messages: [], title: "New conversation" });
@@ -325,6 +341,7 @@ export function ChatScreen({
                   Clear messages
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={loading}
                   onSelect={() => {
                     abort.current?.abort();
                     open(chatStore.remove(threadId));
@@ -334,7 +351,7 @@ export function ChatScreen({
                   Delete conversation
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel>History · this visit</DropdownMenuLabel>
+                <DropdownMenuLabel>History · this device</DropdownMenuLabel>
                 {conversations.map((c) => (
                   <DropdownMenuItem key={c.id} onSelect={() => open(c.id)}>
                     <MessageSquare />
@@ -370,7 +387,13 @@ export function ChatScreen({
                 </h2>
                 <p>What would you like to think through?</p>
                 <span className="preview-chip">
-                  {connected ? "Provider connected" : "Demo preview · AI not connected"}
+                  {onDeviceAi
+                    ? localModelInstalled
+                      ? "AI runs on this phone"
+                      : "Download the model in Settings"
+                    : connected
+                      ? "Provider connected"
+                      : "Demo preview · AI not connected"}
                 </span>
               </div>
             ) : (
@@ -460,7 +483,7 @@ export function ChatScreen({
               >
                 <div className="chat-message-heading">
                   <Aperture size={14} />
-                  <span>{connected ? "LUMO is responding" : "Preparing demo preview"}</span>
+                  <span>{onDeviceAi ? "LUMO is thinking on your phone" : connected ? "LUMO is responding" : "Preparing demo preview"}</span>
                 </div>
                 <Skeleton className="h-3 w-3/4" />
                 <Skeleton className="h-3 w-1/2" />
@@ -491,14 +514,19 @@ export function ChatScreen({
             draft={conversation.draft}
             setDraft={(draft) => chatStore.update(threadId, { draft })}
             loading={loading}
+            canStop={!onDeviceAi}
             onSend={send}
             stop={stop}
             onError={setError}
           />
           <p className="composition-note">
-            {connected
-              ? "Review AI-generated information."
-              : "Demo responses only · History lasts for this visit"}
+            {onDeviceAi
+              ? loading
+                ? "LUMO is generating locally and cannot be interrupted mid-response. Keep the app open."
+                : "Runs locally on this phone · after model download, chats work offline."
+              : connected
+                ? "Review AI-generated information."
+                : "Demo responses only · History is saved on this device"}
           </p>
         </div>
       </section>
