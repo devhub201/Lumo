@@ -92,10 +92,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: appCss,
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap",
-      },
+      ...(import.meta.env["VITE_LUMO_ANDROID_BUILD_MODE"] === "on_device_ai"
+        ? []
+        : [
+            {
+              rel: "stylesheet",
+              href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap",
+            },
+          ]),
     ],
   }),
   shellComponent: RootShell,
