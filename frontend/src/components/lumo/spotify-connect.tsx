@@ -5,16 +5,59 @@ import { Status } from "./ui";
 import {
   beginSpotifyConnect,
   disconnectSpotify,
+  getSpotifyClientId,
   getSpotifyConnection,
   handleSpotifyCallback,
+  listenForSpotifyCallbacks,
+  setSpotifyClientId,
+  spotifyIsConfigured,
+  spotifyRedirectUri,
   SPOTIFY_SCOPES,
   type SpotifyConnection,
+  type SpotifyOAuthCallbackResult,
 } from "@/lib/lumo/spotify";
+import { isOnDeviceAiNative } from "@/lib/lumo/local-ai";
+
+export function SpotifyOAuthCallbackListener() {
+  useEffect(() => {
+    let active = true;
+    let stop: (() => void) | undefined;
+    void listenForSpotifyCallbacks((result) => {
+      if (active) {
+        window.dispatchEvent(
+          new CustomEvent<SpotifyOAuthCallbackResult>("lumo-spotify-callback", { detail: result }),
+        );
+      }
+    })
+      .then((remove) => {
+        if (active) stop = remove;
+        else remove();
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        window.dispatchEvent(
+          new CustomEvent<SpotifyOAuthCallbackResult>("lumo-spotify-callback", {
+            detail: {
+              handled: true,
+              error: error instanceof Error ? error.message : "Spotify sign-in could not resume.",
+            },
+          }),
+        );
+      });
+    return () => {
+      active = false;
+      stop?.();
+    };
+  }, []);
+  return null;
+}
 
 export function SpotifyConnect() {
   const [connection, setConnection] = useState<SpotifyConnection | null>(null);
+  const [clientIdInput, setClientIdInput] = useState(() => getSpotifyClientId());
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  const onDeviceAi = isOnDeviceAiNative();
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -23,9 +66,14 @@ export function SpotifyConnect() {
       const callback = await handleSpotifyCallback();
       if (callback.error) setError(callback.error);
       setConnection(await getSpotifyConnection());
+      setClientIdInput(getSpotifyClientId());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Spotify could not be reached.");
-      setConnection(null);
+      setConnection({
+        configured: spotifyIsConfigured(),
+        connected: false,
+        scopes: [...SPOTIFY_SCOPES],
+      });
     } finally {
       setBusy(false);
     }
@@ -34,9 +82,29 @@ export function SpotifyConnect() {
   useEffect(() => {
     void refresh();
     const onChange = () => void refresh();
+    const onCallback = (event: Event) => {
+      const result = (event as CustomEvent<SpotifyOAuthCallbackResult>).detail;
+      void refresh().then(() => {
+        if (result?.error) setError(result.error);
+      });
+    };
     window.addEventListener("lumo-spotify-updated", onChange);
-    return () => window.removeEventListener("lumo-spotify-updated", onChange);
+    window.addEventListener("lumo-spotify-callback", onCallback);
+    return () => {
+      window.removeEventListener("lumo-spotify-updated", onChange);
+      window.removeEventListener("lumo-spotify-callback", onCallback);
+    };
   }, [refresh]);
+
+  const saveClientId = () => {
+    setError("");
+    try {
+      setSpotifyClientId(clientIdInput);
+      void refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Spotify Client ID could not be saved.");
+    }
+  };
 
   const connect = async () => {
     setBusy(true);
@@ -45,6 +113,7 @@ export function SpotifyConnect() {
       await beginSpotifyConnect();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Spotify could not start authorization.");
+    } finally {
       setBusy(false);
     }
   };
@@ -82,7 +151,7 @@ export function SpotifyConnect() {
               {connection.product === "premium" ? "Premium" : connection.product || "Account"}
             </p>
           )}
-          {!configured && (
+          {!configured && !onDeviceAi && (
             <p className="metadata">
               Add <code>VITE_SPOTIFY_CLIENT_ID</code> and register the redirect URI before
               connecting.
@@ -90,7 +159,7 @@ export function SpotifyConnect() {
           )}
           {configured && !connected && (
             <p className="metadata">
-              Requires Spotify authorization and an active playback device for controls.
+              Authorize Spotify and open the Spotify app or another active playback device.
             </p>
           )}
           {error && (
@@ -116,6 +185,42 @@ export function SpotifyConnect() {
           )}
         </div>
       </div>
+      {onDeviceAi && (
+        <div className="spotify-client-setup">
+          <label htmlFor="spotify-client-id">Spotify Developer app Client ID</label>
+          <div className="spotify-client-entry">
+            <input
+              id="spotify-client-id"
+              className="text-input"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="Paste Client ID"
+              value={clientIdInput}
+              onChange={(event) => setClientIdInput(event.target.value)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy || clientIdInput.trim() === getSpotifyClientId()}
+              onClick={saveClientId}
+            >
+              Save ID
+            </Button>
+          </div>
+          <p>
+            Client ID is public. Don’t enter a Spotify Client Secret, password, or access token. In
+            Spotify Developer Dashboard, register this exact redirect URI and add your Spotify
+            account to Users and Access:
+          </p>
+          <code className="spotify-redirect-uri">{spotifyRedirectUri()}</code>
+          <p>
+            Spotify Development Mode requires the app owner to have Premium; playback control also
+            needs Premium and an active Spotify device.
+          </p>
+        </div>
+      )}
       {configured && (
         <div className="spotify-permission-note">
           <span>Requested permissions</span>

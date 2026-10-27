@@ -35,7 +35,8 @@ import {
   MessageAction,
 } from "@/components/ai-elements/message";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { getIntegrations, parseMusicRequest } from "@/lib/lumo/integrations";
+import { getIntegrations } from "@/lib/lumo/integrations";
+import { parseMusicIntent } from "@/lib/lumo/music-intents";
 import { MusicEmbed } from "./music-embed";
 import { getMusicAdapter } from "@/lib/lumo/spotify";
 import {
@@ -67,24 +68,40 @@ export function ChatScreen({
   const [connected, setConnected] = useState(false);
   const onDeviceAi = isOnDeviceAiNative();
   const [localModelInstalled, setLocalModelInstalled] = useState(false);
+  const [localModelChecked, setLocalModelChecked] = useState(!onDeviceAi);
   const abort = useRef<AbortController | null>(null);
   const layout = useRef<HTMLDivElement>(null);
   const messages = conversation?.messages ?? [];
   useEffect(() => {
     setConnected(!!getIntegrations().chat);
-    if (onDeviceAi) {
-      void getLocalAiStatus()
-        .then((status) => setLocalModelInstalled(status.downloaded))
-        .catch(() => setLocalModelInstalled(false));
-    }
     const current = chatStore.get().find((c) => c.id === threadId);
     if (prompt && current && !current.draft) chatStore.update(threadId, { draft: prompt });
     return () => abort.current?.abort();
-  }, [threadId, prompt, onDeviceAi]);
+  }, [threadId, prompt]);
+  useEffect(() => {
+    if (!onDeviceAi) return;
+    let active = true;
+    setLocalModelChecked(false);
+    void getLocalAiStatus()
+      .then((status) => {
+        if (active) setLocalModelInstalled(status.downloaded);
+      })
+      .catch(() => {
+        if (active) setLocalModelInstalled(false);
+      })
+      .finally(() => {
+        if (active) setLocalModelChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [onDeviceAi]);
   const connectionLabel = onDeviceAi
-    ? localModelInstalled
-      ? "On-device AI ready"
-      : "Download model in Settings"
+    ? !localModelChecked
+      ? "Checking local AI…"
+      : localModelInstalled
+        ? "On-device AI ready"
+        : "Download model in Settings"
     : connected
       ? "Provider connected"
       : "Demo · AI not connected";
@@ -134,31 +151,72 @@ export function ChatScreen({
         return;
       }
       const last = next[next.length - 1];
-      const musicQuery =
-        !isOnDeviceAiNative() && last?.role === "user" ? parseMusicRequest(messageText(last)) : null;
-      if (musicQuery) {
+      const musicIntent = last?.role === "user" ? parseMusicIntent(messageText(last)) : null;
+      if (musicIntent) {
         const music = getMusicAdapter();
-        const state = music ? await music.play(musicQuery, controller.signal) : undefined;
+        if (!music) {
+          const message =
+            musicIntent.type === "play"
+              ? `I can play **${musicIntent.query}** after you connect Spotify in Settings → Connected integrations.`
+              : "Connect Spotify in Settings → Connected integrations before using playback controls.";
+          chatStore.update(threadId, {
+            messages: [
+              ...next,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                parts: [{ type: "text", text: message }],
+              },
+            ],
+          });
+          return;
+        }
+        const state =
+          musicIntent.type === "play"
+            ? await music.play(musicIntent.query, controller.signal)
+            : await music.control(musicIntent.action, musicIntent.value);
         if (controller.signal.aborted) return;
+        const response =
+          musicIntent.type === "play"
+            ? `Playing **${state.track.title}** by ${state.track.artist}.`
+            : musicIntent.action === "pause"
+              ? "Paused Spotify playback."
+              : musicIntent.action === "resume" || musicIntent.action === "play"
+                ? "Resumed Spotify playback."
+                : musicIntent.action === "next"
+                  ? "Skipped to the next track."
+                  : musicIntent.action === "previous"
+                    ? "Went back to the previous track."
+                    : musicIntent.action === "shuffle"
+                      ? `Shuffle is ${state.shuffle ? "on" : "off"}.`
+                      : musicIntent.action === "repeat"
+                        ? `Repeat is ${state.repeat ? "on" : "off"}.`
+                        : "Spotify playback updated.";
         chatStore.update(threadId, {
           messages: [
             ...next,
             {
               id: crypto.randomUUID(),
               role: "assistant",
-              parts: [
-                {
-                  type: "text",
-                  text: state
-                    ? `Playing **${state.track.title}** by ${state.track.artist}.`
-                    : `I can't play **${musicQuery}** yet — Spotify isn't connected.`,
-                },
-              ],
-              music: { query: musicQuery, state },
+              parts: [{ type: "text", text: response }],
+              music: {
+                query: musicIntent.type === "play" ? musicIntent.query : state.track.title,
+                state,
+              },
             },
           ],
         });
         return;
+      }
+      if (onDeviceAi && !localModelChecked) {
+        throw new Error(
+          "LUMO is checking whether the local model is ready. Wait a moment and try again.",
+        );
+      }
+      if (onDeviceAi && !localModelInstalled) {
+        throw new Error(
+          "First download the local AI model: open Settings → On-device AI and tap Download model while connected to Wi-Fi (about 475 MiB).",
+        );
       }
       let response: string;
       if (provider)
@@ -290,7 +348,9 @@ export function ChatScreen({
           ))}
         </div>
         <div className="conversation-nav-bottom">
-          <Status warning={!connected || (onDeviceAi && !localModelInstalled)}>
+          <Status
+            warning={!connected || (onDeviceAi && (!localModelChecked || !localModelInstalled))}
+          >
             {connectionLabel}
           </Status>
           <p>History stays on this device.</p>
@@ -299,7 +359,13 @@ export function ChatScreen({
       <section className="chat-main">
         <header className="chat-header">
           <div className="min-w-0">
-            <span className="eyebrow">{onDeviceAi ? "On-device conversation" : connected ? "Conversation" : "Preview conversation"}</span>
+            <span className="eyebrow">
+              {onDeviceAi
+                ? "On-device conversation"
+                : connected
+                  ? "Conversation"
+                  : "Preview conversation"}
+            </span>
             <h1 title={conversation.title}>{conversation.title}</h1>
           </div>
           <div className="chat-header-actions">
@@ -388,13 +454,20 @@ export function ChatScreen({
                 <p>What would you like to think through?</p>
                 <span className="preview-chip">
                   {onDeviceAi
-                    ? localModelInstalled
-                      ? "AI runs on this phone"
-                      : "Download the model in Settings"
+                    ? !localModelChecked
+                      ? "Checking local model…"
+                      : localModelInstalled
+                        ? "AI runs on this phone"
+                        : "Download the model in Settings"
                     : connected
                       ? "Provider connected"
                       : "Demo preview · AI not connected"}
                 </span>
+                {onDeviceAi && localModelChecked && !localModelInstalled && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link to="/settings">Set up on-device AI</Link>
+                  </Button>
+                )}
               </div>
             ) : (
               messages.map((message, i) => (
@@ -483,7 +556,13 @@ export function ChatScreen({
               >
                 <div className="chat-message-heading">
                   <Aperture size={14} />
-                  <span>{onDeviceAi ? "LUMO is thinking on your phone" : connected ? "LUMO is responding" : "Preparing demo preview"}</span>
+                  <span>
+                    {onDeviceAi
+                      ? "LUMO is thinking on your phone"
+                      : connected
+                        ? "LUMO is responding"
+                        : "Preparing demo preview"}
+                  </span>
                 </div>
                 <Skeleton className="h-3 w-3/4" />
                 <Skeleton className="h-3 w-1/2" />
