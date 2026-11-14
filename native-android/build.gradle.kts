@@ -1,0 +1,7 @@
+// Versions match the toolchain already proven by the legacy Capacitor build in
+// ../android (AGP 8.13.0, Kotlin 2.4.0, Gradle 8.14.3).
+plugins {
+    id("com.android.application") version "8.13.0" apply false
+    id("org.jetbrains.kotlin.android") version "2.4.0" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.0" apply false
+}
