@@ -2,9 +2,9 @@ package com.devhub201.lumo.v2.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -20,40 +20,38 @@ import androidx.compose.ui.unit.sp
 import com.devhub201.lumo.v2.LumoViewModel
 import com.devhub201.lumo.v2.ModelUi
 import com.devhub201.lumo.v2.ai.ModelSpec
+import com.devhub201.lumo.v2.ui.components.GlassCard
 import com.devhub201.lumo.v2.ui.theme.LumoColors
 
 @Composable
 fun SettingsScreen(vm: LumoViewModel) {
     val spec = ModelSpec.Qwen3Small
     LaunchedEffect(Unit) { vm.refreshModel() }
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text("☰  Settings", color = LumoColors.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Panel(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        GlassCard(Modifier.fillMaxWidth(), accent = true) {
             Text("On-device model", color = LumoColors.Muted, fontSize = 12.sp)
-            Text(spec.displayName, color = LumoColors.Text, fontWeight = FontWeight.SemiBold)
+            Text(spec.displayName, color = LumoColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Text("License ${spec.license} · ${mb(spec.sizeBytes)} · SHA-256 verified before use", color = LumoColors.Muted, fontSize = 12.sp)
             Text(
-                "Text only. It cannot browse, read files, see images or use tools, and its Hindi/Hinglish is limited. Bigger models come in later phases.",
+                "Small, text-only model. It cannot browse, read files, see images or use tools, and its Hindi/Hinglish and accuracy are limited. Larger models are planned.",
                 color = LumoColors.Muted,
                 fontSize = 12.sp,
+                modifier = Modifier.padding(vertical = 6.dp),
             )
             val m = vm.model
             when (m) {
                 ModelUi.Ready -> {
-                    Text("Status: ready (${mb(vm.storedBytes)} stored)", color = LumoColors.Success)
+                    Text("Ready · ${mb(vm.storedBytes)} stored", color = LumoColors.Success)
                     OutlinedButton(onClick = { vm.deleteModel() }) { Text("Delete model") }
                 }
                 ModelUi.Missing -> {
-                    Text("Status: not downloaded · free space ${mb(vm.freeBytes)}", color = LumoColors.Muted)
+                    Text("Not downloaded · free space ${mb(vm.freeBytes)}", color = LumoColors.Muted)
                     Button(onClick = { vm.downloadModel() }) { Text("Download (${mb(spec.sizeBytes)})") }
                 }
                 is ModelUi.Downloading -> {
                     val p = if (m.total > 0) m.received.toFloat() / m.total else 0f
                     Text("Downloading ${mb(m.received)} / ${mb(m.total)}", color = LumoColors.Cyan)
-                    LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
                     OutlinedButton(onClick = { vm.cancelModelDownload() }) { Text("Cancel") }
                 }
                 ModelUi.Verifying -> Text("Verifying…", color = LumoColors.Cyan)
@@ -63,10 +61,10 @@ fun SettingsScreen(vm: LumoViewModel) {
                 }
             }
         }
-        Panel(Modifier.fillMaxWidth()) {
+        GlassCard(Modifier.fillMaxWidth()) {
             Text("Chat history", color = LumoColors.Muted, fontSize = 12.sp)
-            Text("Stored only on this phone. ${vm.messages.size} messages.", color = LumoColors.Text, fontSize = 13.sp)
-            Row { OutlinedButton(onClick = { vm.clearChat() }) { Text("Clear chat history") } }
+            Text("Stored only on this phone · ${vm.messages.size} messages", color = LumoColors.Text, fontSize = 14.sp, modifier = Modifier.padding(vertical = 4.dp))
+            OutlinedButton(onClick = { vm.clearChat() }) { Text("Clear chat history") }
         }
     }
 }

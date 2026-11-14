@@ -23,7 +23,7 @@ object PromptBuilder {
             "or accessed files unless that actually happened."
 
     fun build(history: List<ChatTurn>, latest: String): String {
-        val prompt = StringBuilder(SYSTEM_INSTRUCTION).append("\n\n/no_think")
+        val prompt = StringBuilder(SYSTEM_INSTRUCTION)
         var remaining = MAX_HISTORY_CHARS
         val recentFirst = history
             .takeLast(MAX_HISTORY_MESSAGES)
@@ -41,7 +41,8 @@ object PromptBuilder {
                 prompt.append(speaker).append(": ").append(turn.content).append('\n')
             }
         }
-        prompt.append("\nRespond to this latest user message:\n").append(latest.trim())
+        // Qwen3 soft switch: must sit at the very end of the user text to disable thinking.
+        prompt.append("\nRespond to this latest user message:\n").append(latest.trim()).append(" /no_think")
         return prompt.toString()
     }
 }

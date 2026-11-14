@@ -9,7 +9,7 @@ class PromptBuilderTest {
     @Test fun includesSystemAndLatest() {
         val p = PromptBuilder.build(emptyList(), "  namaste  ")
         assertTrue(p.startsWith(PromptBuilder.SYSTEM_INSTRUCTION))
-        assertTrue(p.endsWith("namaste"))
+        assertTrue(p.endsWith("namaste /no_think"))
         assertFalse(p.contains("Previous conversation"))
     }
 

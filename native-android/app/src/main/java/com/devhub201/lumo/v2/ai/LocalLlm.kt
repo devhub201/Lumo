@@ -21,9 +21,9 @@ class LocalLlm(private val context: Context, private val models: LocalModelManag
     fun generate(prompt: String, maxTokens: Int = MAX_OUTPUT_TOKENS): String {
         val e = getOrCreateEngine()
         val answer = e.createConversation(ConversationConfig()).use { conversation ->
-            conversation.sendMessage(prompt, maxOutputToken = maxTokens).toString().trim()
-        }
-        if (answer.isBlank()) throw IllegalStateException("The model returned an empty answer. Try rephrasing.")
+            conversation.sendMessage(prompt, maxOutputToken = maxTokens).toString()
+        }.let { ResponseCleaner.clean(it) }
+        if (answer.isBlank()) throw IllegalStateException("The model spent its whole reply on hidden reasoning and gave no answer. Ask again, shorter.")
         return answer
     }
 
