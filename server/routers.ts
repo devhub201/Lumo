@@ -4,7 +4,12 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import {
+  expensiveProcedure,
+  ownerProcedure,
+  publicProcedure,
+  router,
+} from "./_core/trpc";
 import { createLumoCore } from "./lumo/core";
 import { toPublicError } from "./lumo/errors";
 import { DEFAULT_PERSONALITY } from "./lumo/memory";
@@ -20,12 +25,18 @@ import { buildUtilityContext } from "./lumo/tools/utility/context";
 import { UTILITY_TOOL_IDS } from "./lumo/tools/utility/contracts";
 import { nanoid } from "nanoid";
 import {
-  LUMO_OWNER_KEY,
   LUMO_PERSONALITY_SETTING_KEY,
   type LumoPersonality,
   type MemoryKind,
 } from "./lumo/contracts";
 import { DatabaseLumoStorage } from "./lumo/storage";
+import {
+  ApprovalError,
+  describeApproval,
+  lumoApprovals,
+} from "./lumo/security/approvals";
+import { lumoAudit } from "./lumo/security/audit";
+import type { SensitiveActionAuthorization } from "./lumo/security/safety";
 import {
   lumoRuntimeManager,
   lumoToolRouter,
@@ -66,15 +77,58 @@ import {
 } from "./lumo/teaching/contracts";
 
 const lumoStorage = new DatabaseLumoStorage();
-const lumoCore = createLumoCore({
-  provider: new ManagedLumoProvider(),
-  storage: lumoStorage,
-  logger: lumoLogger,
-  ownerKey: LUMO_OWNER_KEY,
-  toolSystem: lumoToolSystem,
-  router: lumoToolRouter,
-  performance: lumoPerformance,
+const lumoProvider = new ManagedLumoProvider();
+
+// One core per authenticated owner (the core is bound to its owner key). The
+// map is bounded so a flood of distinct users cannot grow memory without limit.
+const MAX_CACHED_CORES = 500;
+const lumoCores = new Map<string, ReturnType<typeof createLumoCore>>();
+const coreFor = (ownerKey: string) => {
+  const existing = lumoCores.get(ownerKey);
+  if (existing) return existing;
+  if (lumoCores.size >= MAX_CACHED_CORES) {
+    const oldest = lumoCores.keys().next().value;
+    if (oldest !== undefined) lumoCores.delete(oldest);
+  }
+  const core = createLumoCore({
+    provider: lumoProvider,
+    storage: lumoStorage,
+    logger: lumoLogger,
+    ownerKey,
+    toolSystem: lumoToolSystem,
+    router: lumoToolRouter,
+    performance: lumoPerformance,
+  });
+  lumoCores.set(ownerKey, core);
+  return core;
+};
+
+// Payloads that an approval is bound to. The same schemas validate the
+// sensitive procedures, so the hash is computed over identical parsed values.
+const gmailSendPayload = z.object({
+  to: z.array(z.string().email()).min(1).max(20),
+  subject: z.string().max(300),
+  body: z.string().max(100_000),
+  idempotencyKey: z.string().min(1).max(120),
 });
+const runtimePayload = z.object({
+  targetId: z.string().min(1).max(80),
+  command: runtimeCommandSchema,
+});
+const approvalRequestInput = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("gmail.send"), payload: gmailSendPayload }),
+  z.object({ action: z.literal("runtime_command"), payload: runtimePayload }),
+]);
+
+const approvalError = (error: unknown): never => {
+  if (error instanceof ApprovalError) {
+    throw new TRPCError({
+      code: error.code === "approval_limit" ? "TOO_MANY_REQUESTS" : "FORBIDDEN",
+      message: error.message,
+    });
+  }
+  throw error;
+};
 
 const memoryKind = z.enum([
   "user_profile",
@@ -97,15 +151,15 @@ const personalityInput = z.object({
 });
 
 const lumoRouter = router({
-  listConversations: publicProcedure.query(() =>
-    lumoStorage.listConversations(LUMO_OWNER_KEY)
+  listConversations: ownerProcedure.query(({ ctx }) =>
+    lumoStorage.listConversations(ctx.ownerKey)
   ),
 
-  getConversation: publicProcedure
+  getConversation: ownerProcedure
     .input(z.object({ id: z.string().min(1).max(36) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const conversation = await lumoStorage.getConversation(
-        LUMO_OWNER_KEY,
+        ctx.ownerKey,
         input.id
       );
       if (!conversation)
@@ -117,7 +171,7 @@ const lumoRouter = router({
       return { conversation, messages };
     }),
 
-  send: publicProcedure
+  send: expensiveProcedure
     .input(
       z.object({
         conversationId: z.string().min(1).max(36).optional(),
@@ -133,7 +187,7 @@ const lumoRouter = router({
     )
     .mutation(async ({ input }) => {
       try {
-        return await lumoCore.sendMessage(input);
+        return await coreFor(ctx.ownerKey).sendMessage(input);
       } catch (error) {
         const safe = toPublicError(error);
         throw new TRPCError({
@@ -146,8 +200,7 @@ const lumoRouter = router({
       }
     }),
 
-  diagnostics: publicProcedure.query(() => ({
-    ownerKey: LUMO_OWNER_KEY,
+  diagnostics: ownerProcedure.query(({ ctx }) => ({
     provider: "managed-platform-llm",
     apiConfigured: Boolean(ENV.forgeApiUrl && ENV.forgeApiKey),
     databaseConfigured: Boolean(ENV.databaseUrl),
@@ -164,17 +217,17 @@ const lumoRouter = router({
     ],
   })),
 
-  toolCatalog: publicProcedure.query(() => lumoToolSystem.listTools()),
+  toolCatalog: ownerProcedure.query(() => lumoToolSystem.listTools()),
 
-  workflowCatalog: publicProcedure.query(() => ({
+  workflowCatalog: ownerProcedure.query(() => ({
     maxSteps: 20,
     maxToolCalls: 30,
     supported: true,
     executionPath: "validated_plan_to_existing_tool_executor",
   })),
 
-  runtimeCatalog: publicProcedure.query(() => lumoRuntimeManager.list()),
-  performanceCatalog: publicProcedure.query(() => ({
+  runtimeCatalog: ownerProcedure.query(() => lumoRuntimeManager.list()),
+  performanceCatalog: ownerProcedure.query(() => ({
     supported: true,
     maxMetrics: 500,
     retention: "bounded_in_memory",
@@ -188,12 +241,12 @@ const lumoRouter = router({
       "runtime",
     ],
   })),
-  performanceSummary: publicProcedure.query(() => lumoPerformance.summary()),
-  performanceMetrics: publicProcedure
+  performanceSummary: ownerProcedure.query(() => lumoPerformance.summary()),
+  performanceMetrics: ownerProcedure
     .input(z.object({ limit: z.number().int().min(0).max(100).default(50) }))
     .query(({ input }) => lumoPerformance.list(input.limit)),
 
-  codingWorkspaceCatalog: publicProcedure.query(() => ({
+  codingWorkspaceCatalog: ownerProcedure.query(() => ({
     supported: true,
     maxFileBytes: 1_000_000,
     operations: [
@@ -208,14 +261,14 @@ const lumoRouter = router({
     executionPath: "coding_workspace_to_workflow_to_permission_to_runtime",
   })),
 
-  browserWorkspaceCatalog: publicProcedure.query(() => ({
+  browserWorkspaceCatalog: ownerProcedure.query(() => ({
     supported: true,
     maxContentChars: 12_000,
     operations: ["open", "navigate", "snapshot", "extract", "links"],
     contentTrust: "untrusted_web_data",
   })),
 
-  githubCatalog: publicProcedure.query(() => ({
+  githubCatalog: ownerProcedure.query(() => ({
     supported: true,
     providerMode: "mock_disconnected_until_explicit_provider_connection",
     operations: [
@@ -234,7 +287,7 @@ const lumoRouter = router({
     ],
     contentTrust: "untrusted_external_data",
   })),
-  gmailCatalog: publicProcedure.query(() => ({
+  gmailCatalog: ownerProcedure.query(() => ({
     supported: true,
     providerMode: "mock_disconnected_until_explicit_provider_connection",
     operations: [
@@ -250,13 +303,13 @@ const lumoRouter = router({
     contentTrust: "untrusted_external_data",
     sending: "explicit_sensitive_authorization_required",
   })),
-  githubAccount: publicProcedure.query(() =>
-    lumoGithub.account(LUMO_OWNER_KEY)
+  githubAccount: ownerProcedure.query(({ ctx }) =>
+    lumoGithub.account(ctx.ownerKey)
   ),
-  githubRepositories: publicProcedure.query(() =>
-    lumoGithub.listRepositories(LUMO_OWNER_KEY)
+  githubRepositories: ownerProcedure.query(({ ctx }) =>
+    lumoGithub.listRepositories(ctx.ownerKey)
   ),
-  githubReadFile: publicProcedure
+  githubReadFile: ownerProcedure
     .input(
       z.object({
         owner: z.string().min(1).max(100),
@@ -265,22 +318,22 @@ const lumoRouter = router({
         path: relativePathSchema,
       })
     )
-    .query(({ input }) => lumoGithub.readFile(LUMO_OWNER_KEY, input)),
-  gmailAccount: publicProcedure.query(() => lumoGmail.account(LUMO_OWNER_KEY)),
-  gmailSearch: publicProcedure
+    .query(({ input, ctx }) => lumoGithub.readFile(ctx.ownerKey, input)),
+  gmailAccount: ownerProcedure.query(({ ctx }) => lumoGmail.account(ctx.ownerKey)),
+  gmailSearch: expensiveProcedure
     .input(
       z.object({
         query: z.string().trim().min(1).max(300),
         limit: z.number().int().min(1).max(50).default(20),
       })
     )
-    .query(({ input }) =>
-      lumoGmail.search(LUMO_OWNER_KEY, input.query, input.limit)
+    .query(({ input, ctx }) =>
+      lumoGmail.search(ctx.ownerKey, input.query, input.limit)
     ),
-  gmailMessage: publicProcedure
+  gmailMessage: ownerProcedure
     .input(z.object({ id: z.string().min(1).max(100) }))
-    .query(({ input }) => lumoGmail.message(LUMO_OWNER_KEY, input.id)),
-  gmailCreateDraft: publicProcedure
+    .query(({ input, ctx }) => lumoGmail.message(ctx.ownerKey, input.id)),
+  gmailCreateDraft: ownerProcedure
     .input(
       z.object({
         to: z.array(z.string().email()).min(1).max(20),
@@ -288,44 +341,43 @@ const lumoRouter = router({
         body: z.string().max(100_000),
       })
     )
-    .mutation(({ input }) => lumoGmail.draft(LUMO_OWNER_KEY, input)),
-  gmailSend: publicProcedure
-    .input(
-      z.object({
-        to: z.array(z.string().email()).min(1).max(20),
-        subject: z.string().max(300),
-        body: z.string().max(100_000),
-        idempotencyKey: z.string().min(1).max(120),
-        authorization: z
-          .object({
-            authorized: z.boolean(),
-            action: z.string().max(80),
-            reason: z.string().max(300),
-            issuedAt: z.number(),
-          })
-          .optional(),
-      })
-    )
-    .mutation(({ input }) =>
-      lumoGmail.send(LUMO_OWNER_KEY, input, input.authorization)
-    ),
+    .mutation(({ input, ctx }) => lumoGmail.draft(ctx.ownerKey, input)),
+  gmailSend: expensiveProcedure
+    .input(gmailSendPayload.extend({ approvalId: z.string().min(1).max(64) }))
+    .mutation(({ input, ctx }) => {
+      const { approvalId, ...payload } = input;
+      // The authorization is built by the server from a consumed approval that
+      // is bound to this exact payload. Client-supplied flags do not exist.
+      let authorization: SensitiveActionAuthorization;
+      try {
+        authorization = lumoApprovals.consume(
+          ctx.ownerKey,
+          approvalId,
+          "gmail.send",
+          payload
+        );
+      } catch (error) {
+        return approvalError(error);
+      }
+      return lumoGmail.send(ctx.ownerKey, payload, authorization);
+    }),
 
-  codeCreateProject: publicProcedure
+  codeCreateProject: ownerProcedure
     .input(z.object({ name: projectNameSchema }))
-    .mutation(({ input }) =>
-      lumoCodeWorkspace.createProject(LUMO_OWNER_KEY, input.name)
+    .mutation(({ input, ctx }) =>
+      lumoCodeWorkspace.createProject(ctx.ownerKey, input.name)
     ),
-  codeListProjects: publicProcedure.query(() =>
-    lumoCodeWorkspace.list(LUMO_OWNER_KEY)
+  codeListProjects: ownerProcedure.query(({ ctx }) =>
+    lumoCodeWorkspace.list(ctx.ownerKey)
   ),
-  codeReadFile: publicProcedure
+  codeReadFile: ownerProcedure
     .input(
       z.object({ projectId: z.string().max(80), path: relativePathSchema })
     )
-    .query(({ input }) =>
-      lumoCodeWorkspace.readFile(LUMO_OWNER_KEY, input.projectId, input.path)
+    .query(({ input, ctx }) =>
+      lumoCodeWorkspace.readFile(ctx.ownerKey, input.projectId, input.path)
     ),
-  codeApplyPatch: publicProcedure
+  codeApplyPatch: ownerProcedure
     .input(
       z.object({
         projectId: z.string().max(80),
@@ -334,20 +386,20 @@ const lumoRouter = router({
         content: codeContentSchema,
       })
     )
-    .mutation(({ input }) =>
-      lumoCodeWorkspace.applyPatch(LUMO_OWNER_KEY, input.projectId, input)
+    .mutation(({ input, ctx }) =>
+      lumoCodeWorkspace.applyPatch(ctx.ownerKey, input.projectId, input)
     ),
-  codeAnalyze: publicProcedure
+  codeAnalyze: ownerProcedure
     .input(z.object({ projectId: z.string().max(80) }))
-    .query(({ input }) =>
-      lumoCodeWorkspace.analyze(LUMO_OWNER_KEY, input.projectId)
+    .query(({ input, ctx }) =>
+      lumoCodeWorkspace.analyze(ctx.ownerKey, input.projectId)
     ),
-  codeSnapshot: publicProcedure
+  codeSnapshot: ownerProcedure
     .input(z.object({ projectId: z.string().max(80) }))
-    .query(({ input }) =>
-      lumoCodeWorkspace.snapshot(LUMO_OWNER_KEY, input.projectId)
+    .query(({ input, ctx }) =>
+      lumoCodeWorkspace.snapshot(ctx.ownerKey, input.projectId)
     ),
-  codeRunTask: publicProcedure
+  codeRunTask: expensiveProcedure
     .input(
       z.object({
         projectId: z.string().max(80),
@@ -355,47 +407,47 @@ const lumoRouter = router({
         kind: z.enum(["test", "build", "lint"]),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const task = lumoCodingTasks.create(input.projectId, input.requestId);
       return {
         task,
-        result: await lumoCodingTasks.run(task, input.kind, LUMO_OWNER_KEY),
+        result: await lumoCodingTasks.run(task, input.kind, ctx.ownerKey),
       };
     }),
 
-  browserCreateSession: publicProcedure.mutation(() =>
-    lumoBrowserWorkspace.createSession(LUMO_OWNER_KEY)
+  browserCreateSession: ownerProcedure.mutation(({ ctx }) =>
+    lumoBrowserWorkspace.createSession(ctx.ownerKey)
   ),
-  browserOpen: publicProcedure
+  browserOpen: expensiveProcedure
     .input(z.object({ sessionId: z.string().max(80), url: browserUrlSchema }))
-    .mutation(({ input }) =>
-      lumoBrowserWorkspace.open(LUMO_OWNER_KEY, input.sessionId, input.url)
+    .mutation(({ input, ctx }) =>
+      lumoBrowserWorkspace.open(ctx.ownerKey, input.sessionId, input.url)
     ),
-  browserSnapshot: publicProcedure
+  browserSnapshot: ownerProcedure
     .input(z.object({ sessionId: z.string().max(80) }))
-    .query(({ input }) =>
-      lumoBrowserWorkspace.snapshot(LUMO_OWNER_KEY, input.sessionId)
+    .query(({ input, ctx }) =>
+      lumoBrowserWorkspace.snapshot(ctx.ownerKey, input.sessionId)
     ),
-  browserAction: publicProcedure
+  browserAction: expensiveProcedure
     .input(
       z.object({ sessionId: z.string().max(80), action: browserActionSchema })
     )
-    .mutation(({ input }) =>
-      lumoBrowserWorkspace.action(LUMO_OWNER_KEY, input.sessionId, input.action)
+    .mutation(({ input, ctx }) =>
+      lumoBrowserWorkspace.action(ctx.ownerKey, input.sessionId, input.action)
     ),
 
-  runWorkflow: publicProcedure
+  runWorkflow: expensiveProcedure
     .input(
       z.object({
         plan: agentPlanSchema,
         signal: z.undefined().optional(),
       })
     )
-    .mutation(async ({ input }) =>
-      lumoWorkflowExecutor.execute(input.plan, { ownerKey: LUMO_OWNER_KEY })
+    .mutation(async ({ input, ctx }) =>
+      lumoWorkflowExecutor.execute(input.plan, { ownerKey: ctx.ownerKey })
     ),
 
-  runtimeStatus: publicProcedure
+  runtimeStatus: ownerProcedure
     .input(z.object({ targetId: z.string().min(1).max(80) }))
     .query(async ({ input }) => {
       const target = lumoRuntimeManager
@@ -406,31 +458,67 @@ const lumoRouter = router({
         : { target: null, status: "offline" as const };
     }),
 
-  runRuntime: publicProcedure
+  runRuntime: expensiveProcedure
+    .input(runtimePayload.extend({ approvalId: z.string().min(1).max(64) }))
+    .mutation(async ({ input, ctx }) => {
+      const { approvalId, ...payload } = input;
+      let authorization: SensitiveActionAuthorization;
+      try {
+        authorization = lumoApprovals.consume(
+          ctx.ownerKey,
+          approvalId,
+          "runtime_command",
+          payload
+        );
+      } catch (error) {
+        return approvalError(error);
+      }
+      return lumoRuntimeManager.execute({
+        targetId: payload.targetId,
+        command: payload.command,
+        ownerKey: ctx.ownerKey,
+        authorization,
+      });
+    }),
+
+  approvalRequest: ownerProcedure
+    .input(approvalRequestInput)
+    .mutation(({ input, ctx }) => {
+      try {
+        return lumoApprovals.request(ctx.ownerKey, {
+          action: input.action,
+          summary: describeApproval(
+            input.action,
+            input.payload as Record<string, unknown>
+          ),
+          payload: input.payload,
+        });
+      } catch (error) {
+        return approvalError(error);
+      }
+    }),
+  approvalDecide: ownerProcedure
     .input(
       z.object({
-        targetId: z.string().min(1).max(80),
-        command: runtimeCommandSchema,
-        authorization: z
-          .object({
-            authorized: z.boolean(),
-            action: z.string().max(80),
-            reason: z.string().max(300),
-            issuedAt: z.number(),
-          })
-          .optional(),
+        id: z.string().min(1).max(64),
+        decision: z.enum(["approve", "deny"]),
       })
     )
-    .mutation(async ({ input }) =>
-      lumoRuntimeManager.execute({
-        targetId: input.targetId,
-        command: input.command,
-        ownerKey: LUMO_OWNER_KEY,
-        authorization: input.authorization,
-      })
-    ),
+    .mutation(({ input, ctx }) => {
+      try {
+        return lumoApprovals.decide(ctx.ownerKey, input.id, input.decision);
+      } catch (error) {
+        return approvalError(error);
+      }
+    }),
+  approvalList: ownerProcedure.query(({ ctx }) =>
+    lumoApprovals.list(ctx.ownerKey)
+  ),
+  auditRecent: ownerProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(200).default(50) }))
+    .query(({ input, ctx }) => lumoAudit.recent(ctx.ownerKey, input.limit)),
 
-  routeRequest: publicProcedure
+  routeRequest: ownerProcedure
     .input(
       z.object({
         text: z.string().trim().min(1).max(4000),
@@ -448,10 +536,10 @@ const lumoRouter = router({
         previousFingerprints: z.array(z.string().max(300)).max(4).optional(),
       })
     )
-    .mutation(async ({ input }) =>
+    .mutation(async ({ input, ctx }) =>
       lumoToolRouter.route({
         text: input.text,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         requestId: nanoid(12),
         context: {
           recentMessages: input.recentMessages,
@@ -462,14 +550,14 @@ const lumoRouter = router({
       })
     ),
 
-  searchWeb: publicProcedure
+  searchWeb: expensiveProcedure
     .input(webSearchInputSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const requestId = nanoid(12);
       const result = (await lumoToolSystem.execute({
         toolId: "web_search",
         arguments: input,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         requestId,
       })) as ToolResult<WebSearchOutput>;
       const context = buildWebSearchContext(lumoLogger, {
@@ -487,19 +575,19 @@ const lumoRouter = router({
       };
     }),
 
-  runUtility: publicProcedure
+  runUtility: ownerProcedure
     .input(
       z.object({
         toolId: z.enum(UTILITY_TOOL_IDS),
         arguments: z.unknown(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const requestId = nanoid(12);
       const result = (await lumoToolSystem.execute({
         toolId: input.toolId,
         arguments: input.arguments,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         requestId,
       })) as ToolResult<unknown>;
       const context = buildUtilityContext(lumoLogger, {
@@ -517,19 +605,19 @@ const lumoRouter = router({
       };
     }),
 
-  runFile: publicProcedure
+  runFile: expensiveProcedure
     .input(
       z.object({
         toolId: z.enum(FILE_TOOL_IDS),
         arguments: z.unknown(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const requestId = nanoid(12);
       const result = (await lumoToolSystem.execute({
         toolId: input.toolId,
         arguments: input.arguments,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         requestId,
       })) as ToolResult<any>;
       const documentContext = buildDocumentContext(result);
@@ -549,7 +637,7 @@ const lumoRouter = router({
       };
     }),
 
-  runVision: publicProcedure
+  runVision: expensiveProcedure
     .input(
       z.object({
         toolId: z.enum(["vision_analyze", "camera_capture"]),
@@ -559,12 +647,12 @@ const lumoRouter = router({
         ]),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const requestId = nanoid(12);
       const result = (await lumoToolSystem.execute({
         toolId: input.toolId,
         arguments: input.arguments,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         requestId,
       })) as ToolResult<any>;
       const visionContext = buildVisionContext(result);
@@ -588,7 +676,7 @@ const lumoRouter = router({
       };
     }),
 
-  runBlueprint: publicProcedure
+  runBlueprint: ownerProcedure
     .input(
       z.object({
         toolId: z.enum([
@@ -603,16 +691,16 @@ const lumoRouter = router({
         ]),
       })
     )
-    .mutation(async ({ input }) =>
+    .mutation(async ({ input, ctx }) =>
       lumoToolSystem.execute({
         toolId: input.toolId,
         arguments: input.arguments,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         requestId: nanoid(12),
       })
     ),
 
-  runTeaching: publicProcedure
+  runTeaching: ownerProcedure
     .input(
       z.object({
         toolId: z.enum(["teaching_create", "teaching_progress"]),
@@ -622,19 +710,19 @@ const lumoRouter = router({
         ]),
       })
     )
-    .mutation(async ({ input }) =>
+    .mutation(async ({ input, ctx }) =>
       lumoToolSystem.execute({
         toolId: input.toolId,
         arguments: input.arguments,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         requestId: nanoid(12),
       })
     ),
 
-  getPersonality: publicProcedure.query(async () => {
+  getPersonality: ownerProcedure.query(async ({ ctx }) => {
     try {
       const raw = await lumoStorage.getSetting(
-        LUMO_OWNER_KEY,
+        ctx.ownerKey,
         LUMO_PERSONALITY_SETTING_KEY
       );
       return raw
@@ -648,22 +736,22 @@ const lumoRouter = router({
     }
   }),
 
-  updatePersonality: publicProcedure
+  updatePersonality: ownerProcedure
     .input(personalityInput)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await lumoStorage.setSetting(
-        LUMO_OWNER_KEY,
+        ctx.ownerKey,
         LUMO_PERSONALITY_SETTING_KEY,
         JSON.stringify(input)
       );
       return input;
     }),
 
-  listMemories: publicProcedure.query(() =>
-    lumoStorage.listMemories(LUMO_OWNER_KEY)
+  listMemories: ownerProcedure.query(({ ctx }) =>
+    lumoStorage.listMemories(ctx.ownerKey)
   ),
 
-  createMemory: publicProcedure
+  createMemory: ownerProcedure
     .input(
       z.object({
         kind: memoryKind,
@@ -672,15 +760,15 @@ const lumoRouter = router({
         importance: z.number().int().min(1).max(100).default(50),
       })
     )
-    .mutation(({ input }) =>
+    .mutation(({ input, ctx }) =>
       lumoStorage.createMemory({
         ...input,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         source: "explicit",
       })
     ),
 
-  remember: publicProcedure
+  remember: ownerProcedure
     .input(
       z.object({
         content: z.string().trim().min(1).max(2000),
@@ -688,36 +776,36 @@ const lumoRouter = router({
         importance: z.number().int().min(1).max(100).default(85),
       })
     )
-    .mutation(({ input }) =>
+    .mutation(({ input, ctx }) =>
       lumoStorage.createMemory({
         ...input,
-        ownerKey: LUMO_OWNER_KEY,
+        ownerKey: ctx.ownerKey,
         kind: input.kind ?? "important_fact",
         source: "explicit",
       })
     ),
 
-  deleteMemory: publicProcedure
+  deleteMemory: ownerProcedure
     .input(z.object({ id: z.string().min(1).max(36) }))
-    .mutation(async ({ input }) => {
-      await lumoStorage.deactivateMemory(LUMO_OWNER_KEY, input.id);
+    .mutation(async ({ input, ctx }) => {
+      await lumoStorage.deactivateMemory(ctx.ownerKey, input.id);
       return { success: true } as const;
     }),
 
-  forget: publicProcedure
+  forget: ownerProcedure
     .input(z.object({ query: z.string().trim().min(1).max(500) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const matches = await lumoStorage.searchMemories(
-        LUMO_OWNER_KEY,
+        ctx.ownerKey,
         input.query,
         1
       );
       if (matches[0])
-        await lumoStorage.deactivateMemory(LUMO_OWNER_KEY, matches[0].id);
+        await lumoStorage.deactivateMemory(ctx.ownerKey, matches[0].id);
       return { success: Boolean(matches[0]) } as const;
     }),
 
-  recall: publicProcedure.query(() => lumoStorage.listMemories(LUMO_OWNER_KEY)),
+  recall: ownerProcedure.query(({ ctx }) => lumoStorage.listMemories(ctx.ownerKey)),
 });
 
 export const appRouter = router({

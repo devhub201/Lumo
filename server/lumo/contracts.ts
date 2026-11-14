@@ -1,5 +1,10 @@
 import type { Message } from "../_core/llm";
 
+/**
+ * @deprecated Legacy single-user key. Production code must use the owner key
+ * derived from the authenticated session (see security/owner.ts). Kept only so
+ * existing unit tests that construct cores directly keep compiling.
+ */
 export const LUMO_OWNER_KEY = "peter" as const;
 export const LUMO_MESSAGE_LIMIT = 24;
 export const LUMO_MEMORY_LIMIT = 5;

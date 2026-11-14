@@ -481,7 +481,7 @@ export function createLumoCore({
 
         const inferredMemory = memoryCommand
           ? null
-          : inferDurableMemory(userText);
+          : inferDurableMemory(userText, ownerKey);
         if (inferredMemory) {
           const result = await storeMemory(inferredMemory);
           memoryWrite = result.failed ? "failed" : "stored";

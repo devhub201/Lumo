@@ -40,6 +40,15 @@ export type PermissionDecision = {
 };
 export class PermissionManager {
   private records = new Map<string, PermissionRecord>();
+  /**
+   * Capabilities allowed for any authenticated owner unless that owner has an
+   * explicit record (an explicit deny always wins). Replaces the old
+   * hardcoded grant to the fixed owner key "peter".
+   */
+  private defaultAllowed = new Set<PermissionCapability>();
+  allowByDefault(capability: PermissionCapability) {
+    this.defaultAllowed.add(capability);
+  }
   private key(
     ownerKey: string,
     capability: PermissionCapability,
@@ -66,8 +75,15 @@ export class PermissionManager {
     const record =
       this.get(ownerKey, capability, resource) ??
       this.get(ownerKey, capability);
-    if (!record)
+    if (!record) {
+      if (this.defaultAllowed.has(capability))
+        return {
+          allowed: true,
+          record: null,
+          reason: "Allowed by the default allowlist.",
+        };
       return { allowed: false, record: null, reason: "Permission is unknown." };
+    }
     return {
       allowed: record.state === "granted",
       record,

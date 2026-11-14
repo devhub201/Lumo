@@ -23,11 +23,12 @@ describe("LUMO memory lifecycle", () => {
   it("classifies structured long-term information conservatively", () => {
     expect(inferMemoryKind("My project is called LUMO")).toBe("project");
     expect(inferMemoryKind("I want LUMO to call me Peter")).toBe("preference");
-    expect(inferDurableMemory("My project is called LUMO.")).toMatchObject({
+    expect(inferDurableMemory("My project is called LUMO.", "owner-a")).toMatchObject({
+      ownerKey: "owner-a",
       kind: "project",
       source: "inferred",
     });
-    expect(inferDurableMemory("The sky is blue.")).toBeNull();
+    expect(inferDurableMemory("The sky is blue.", "owner-a")).toBeNull();
   });
 
   it("formats a useful recall response without exposing storage metadata", () => {

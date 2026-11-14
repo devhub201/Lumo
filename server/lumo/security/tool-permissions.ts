@@ -6,13 +6,7 @@ export class ManagedToolPermissions implements ToolPermissionChecker {
     defaults: ToolPermission[] = []
   ) {
     for (const permission of defaults)
-      manager.grant(
-        "peter",
-        capabilityForToolPermission(permission),
-        "Existing LUMO tool allowlist",
-        "*",
-        "system"
-      );
+      manager.allowByDefault(capabilityForToolPermission(permission));
   }
   async canUse(ownerKey: string, permission: ToolPermission) {
     return this.manager.evaluate(

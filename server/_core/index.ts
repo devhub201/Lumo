@@ -7,21 +7,48 @@ import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import {
+  originGuard,
+  rateLimitMiddleware,
+  securityHeaders,
+} from "./httpGuards";
+import { FixedWindowRateLimiter, rateLimitConfig } from "./rateLimit";
 
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.disable("x-powered-by");
+  // Behind a reverse proxy set LUMO_TRUST_PROXY to the number of proxy hops so
+  // rate limiting sees real client IPs; unset means "do not trust forwarded headers".
+  const trustProxy = Number(process.env.LUMO_TRUST_PROXY ?? "0");
+  if (Number.isInteger(trustProxy) && trustProxy > 0)
+    app.set("trust proxy", trustProxy);
+  app.use(securityHeaders);
+  // Largest legitimate payload is a vision image data URL (<= 7 MB, see
+  // vision/contracts.ts). Everything else is far smaller. Was 50 MB.
+  const bodyLimit = process.env.LUMO_BODY_LIMIT || "10mb";
+  app.use(express.json({ limit: bodyLimit }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
+  const limits = rateLimitConfig();
+  const apiLimiter = new FixedWindowRateLimiter({
+    windowMs: 60_000,
+    max: limits.ipPerMinute,
+  });
+  const authLimiter = new FixedWindowRateLimiter({
+    windowMs: 60_000,
+    max: limits.authPerMinute,
+  });
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
+  app.use("/api/oauth", rateLimitMiddleware(authLimiter, "oauth"));
   registerOAuthRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",
+    rateLimitMiddleware(apiLimiter, "api"),
+    originGuard,
     createExpressMiddleware({
       router: appRouter,
       createContext,

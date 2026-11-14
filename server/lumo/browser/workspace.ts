@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { safeFetch } from "../../_core/ssrf";
 import type { PermissionManager } from "../security/permissions";
 import {
   looksLikeInstructionInjection,
@@ -31,13 +32,13 @@ export class BrowserWorkspace {
   private snapshots = new Map<string, BrowserSnapshot>();
   constructor(
     private readonly permissions: PermissionManager,
+    // Default provider goes through the SSRF guard: public http(s) only,
+    // destination IP validated at connect time, no redirect following, bounded
+    // size and time. Never replace this with a raw fetch().
     private readonly provider: BrowserProvider = {
       fetch: async url => {
-        const response = await fetch(url, { redirect: "manual" });
-        return {
-          status: response.status,
-          body: (await response.text()).slice(0, 200_000),
-        };
+        const response = await safeFetch(url, { maxBytes: 200_000 });
+        return { status: response.status, body: response.body };
       },
     }
   ) {}

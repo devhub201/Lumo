@@ -82,11 +82,14 @@ export function parseMemoryCommand(text: string): MemoryCommand | null {
   return null;
 }
 
-export function inferDurableMemory(text: string): CreateMemoryInput | null {
+export function inferDurableMemory(
+  text: string,
+  ownerKey: string
+): CreateMemoryInput | null {
   const value = clean(text);
   if (/^(?:my\s+)?project\s+is\s+(?:called|named)\s+.+$/i.test(value)) {
     return {
-      ownerKey: "peter",
+      ownerKey,
       kind: "project",
       content: value,
       importance: 80,
@@ -99,7 +102,7 @@ export function inferDurableMemory(text: string): CreateMemoryInput | null {
     )
   ) {
     return {
-      ownerKey: "peter",
+      ownerKey,
       kind: "preference",
       content: value,
       importance: 80,
