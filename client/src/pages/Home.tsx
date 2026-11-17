@@ -1,41 +1,23 @@
-import { Streamdown } from "streamdown";
 import {
   AlertTriangle,
-  Activity,
-  BrainCircuit,
   Camera,
   CameraOff,
   Check,
   ChevronRight,
   CircleDot,
-  Clock3,
   Database,
+  Fingerprint,
   Loader2,
+  LockKeyhole,
   Mic,
-  Plus,
-  RefreshCw,
-  Save,
+  MicOff,
   ScanEye,
-  Send,
   ShieldCheck,
   Sparkles,
-  Fingerprint,
-  LockKeyhole,
-  Terminal,
+  Activity,
 } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { BlueprintCanvas } from "@/components/BlueprintCanvas";
-import { VisualOverlay } from "@/components/VisualOverlay";
-import { TeachingOverlay } from "@/components/TeachingOverlay";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { LumoOrb, type LumoOrbState } from "@/components/LumoOrb";
 import { trpc } from "@/lib/trpc";
 import {
   CameraError,
@@ -43,68 +25,40 @@ import {
   type CameraSession,
 } from "@/lib/camera";
 import type { VisionResult } from "../../../server/lumo/vision/contracts";
-import type { Blueprint } from "../../../server/lumo/blueprints/contracts";
-import type { OverlayModel } from "../../../server/lumo/overlays/contracts";
 import { detectModeCommand } from "../../../server/lumo/interaction/commands";
-import type { InteractionMode } from "../../../server/lumo/interaction/contracts";
-import type { TeachingSession } from "../../../server/lumo/teaching/contracts";
-import { createSpeechOutput, createVoiceInput, VoiceError } from "@/lib/voice";
+import {
+  createSpeechOutput,
+  createVoiceInput,
+  VoiceError,
+} from "@/lib/voice";
 import {
   getBiometricAvailability,
   verifyBiometric,
   type BiometricAvailability,
 } from "@/lib/biometric";
 import { Capacitor } from "@capacitor/core";
+import "@/lumo-voice.css";
 
-type MemoryKind = "preference" | "fact" | "project" | "summary" | "knowledge";
+const SECURE_VAULT_KEY = "lumo.secure-vault.v1";
 
-const WORKBENCH_BLUEPRINT: Blueprint = {
-  id: "workbench-context-flow",
-  title: "LUMO context flow",
-  nodes: [
-    { id: "input", label: "User input", x: 20, y: 120, width: 140, height: 60 },
-    {
-      id: "context",
-      label: "Context Manager",
-      x: 260,
-      y: 120,
-      width: 160,
-      height: 60,
-    },
-    {
-      id: "response",
-      label: "LUMO response",
-      x: 520,
-      y: 120,
-      width: 140,
-      height: 60,
-    },
-  ],
-  edges: [
-    { id: "input-context", from: "input", to: "context" },
-    { id: "context-response", from: "context", to: "response" },
-  ],
-  groups: [],
-  trust: "untrusted_blueprint_data",
+type SecureEntry = { id: string; note: string; savedAt: string };
+
+const loadSecureVault = (): SecureEntry[] => {
+  try {
+    const raw = localStorage.getItem(SECURE_VAULT_KEY);
+    return raw ? (JSON.parse(raw) as SecureEntry[]) : [];
+  } catch {
+    return [];
+  }
 };
 
-type Message = {
-  id: string;
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  createdAt: Date;
+const saveSecureVault = (entries: SecureEntry[]) => {
+  try {
+    localStorage.setItem(SECURE_VAULT_KEY, JSON.stringify(entries));
+  } catch {
+    // best-effort; secure vault staying in-memory only is an acceptable fallback
+  }
 };
-
-const formatTime = (value: Date | string) =>
-  new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-
-const formatDate = (value: Date | string) =>
-  new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
-    new Date(value)
-  );
 
 export default function Home() {
   const nativePlatform = Capacitor.isNativePlatform();
@@ -116,8 +70,9 @@ export default function Home() {
   const [authMessage, setAuthMessage] = useState(
     "Identity verification required to continue."
   );
+
+  // conversation / voice turn state
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
   const [pendingText, setPendingText] = useState<string | null>(null);
   const [failedText, setFailedText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -129,51 +84,60 @@ export default function Home() {
     retrievedMemoryCount: number;
     depthLevel: number;
   } | null>(null);
-  const [memoryKind, setMemoryKind] = useState<MemoryKind>("fact");
-  const [memoryDraft, setMemoryDraft] = useState("");
-  const [memoryStatus, setMemoryStatus] = useState<string | null>(null);
+  const [lastExchange, setLastExchange] = useState<{
+    heard: string;
+    reply: string;
+  } | null>(null);
+  const [interimText, setInterimText] = useState("");
+
+  // always-on mic state
+  const [micMuted, setMicMuted] = useState(true);
+  const [micStatus, setMicStatus] = useState("starting up…");
+  const [speaking, setSpeaking] = useState(false);
+  const [liveCaptions, setLiveCaptions] = useState(true);
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const sessionStart = useRef(Date.now());
+  const [sessionElapsed, setSessionElapsed] = useState(0);
+
+  // secure, never-spoken input
+  const [secureVault, setSecureVault] = useState<SecureEntry[]>([]);
+  const [secureDraft, setSecureDraft] = useState("");
+
+  // camera / vision quick action
+  const [visionOpen, setVisionOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStatus, setCameraStatus] = useState<string | null>(null);
   const [visionSnapshot, setVisionSnapshot] = useState<VisionResult | null>(
     null
   );
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [overlayModel, setOverlayModel] = useState<OverlayModel | null>(null);
-  const [teachingSession, setTeachingSession] =
-    useState<TeachingSession | null>(null);
-  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(
-    null
-  );
-  const [interactionMode, setInteractionMode] =
-    useState<InteractionMode>("text");
-  const [workspacePreset, setWorkspacePreset] = useState("Peter Mode");
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraSessionRef = useRef<CameraSession | null>(null);
+
   const [securityStatus, setSecurityStatus] = useState(
     "native biometric ready when supported"
   );
-  const [voiceStatus, setVoiceStatus] = useState("text mode");
+
   const voiceInputRef = useRef<ReturnType<typeof createVoiceInput> | null>(
     null
   );
   const speechOutputRef = useRef<ReturnType<typeof createSpeechOutput> | null>(
     null
   );
-  const cameraVideoRef = useRef<HTMLVideoElement>(null);
-  const cameraSessionRef = useRef<CameraSession | null>(null);
+  const autoSpeakRef = useRef(autoSpeak);
+  autoSpeakRef.current = autoSpeak;
+  const liveCaptionsRef = useRef(liveCaptions);
+  liveCaptionsRef.current = liveCaptions;
 
-  const conversationsQuery = trpc.lumo.listConversations.useQuery();
   const diagnosticsQuery = trpc.lumo.diagnostics.useQuery();
   const memoriesQuery = trpc.lumo.listMemories.useQuery();
-  const conversationQuery = trpc.lumo.getConversation.useQuery(
-    { id: selectedId ?? "" },
-    { enabled: Boolean(selectedId) }
-  );
   const utils = trpc.useUtils();
   const sendMutation = trpc.lumo.send.useMutation();
-  const memoryMutation = trpc.lumo.createMemory.useMutation();
   const runVisionMutation = trpc.lumo.runVision.useMutation();
-  const performanceSummaryQuery = trpc.lumo.performanceSummary.useQuery();
-  const githubCatalogQuery = trpc.lumo.githubCatalog.useQuery();
-  const gmailCatalogQuery = trpc.lumo.gmailCatalog.useQuery();
+
+  const sortedMemories = useMemo(
+    () => (memoriesQuery.data ?? []).slice(0, 4),
+    [memoriesQuery.data]
+  );
 
   useEffect(() => {
     if (!nativePlatform) return;
@@ -189,51 +153,150 @@ export default function Home() {
   }, [nativePlatform]);
 
   useEffect(() => {
-    voiceInputRef.current = createVoiceInput();
-    speechOutputRef.current = createSpeechOutput();
-    return () => {
-      voiceInputRef.current?.cancel();
-      speechOutputRef.current?.stop();
-    };
+    setSecureVault(loadSecureVault());
   }, []);
 
-  const messages = (conversationQuery.data?.messages ?? []) as Message[];
-  const activeConversation = conversationQuery.data?.conversation;
-  const displayTitle = activeConversation?.title ?? "New conversation";
-  const sortedMemories = useMemo(
-    () => (memoriesQuery.data ?? []).slice(0, 8),
-    [memoriesQuery.data]
-  );
+  useEffect(() => {
+    const id = setInterval(
+      () => setSessionElapsed(Date.now() - sessionStart.current),
+      1000
+    );
+    return () => clearInterval(id);
+  }, []);
 
-  const selectConversation = (id: string) => {
-    setSelectedId(id);
-    setDraft("");
+  const submitText = (text: string) => {
+    const cleanText = text.trim();
+    if (!cleanText || sendMutation.isPending) return;
+
+    const modeCommand = detectModeCommand(cleanText);
+    if (modeCommand) {
+      if (modeCommand.mode === "text") {
+        muteMic();
+        return;
+      }
+      if (modeCommand.mode === "voice") {
+        unmuteMic();
+        return;
+      }
+      if (modeCommand.mode === "camera") {
+        void openCamera();
+        return;
+      }
+      setMicStatus(`"${modeCommand.mode}" mode isn't wired up yet`);
+      return;
+    }
+
     setErrorText(null);
     setFailedText(null);
-    setPendingText(null);
-    setLastDiagnostics(null);
-    setVisionSnapshot(null);
-    setCapturedImage(null);
-    setOverlayModel(null);
-    setTeachingSession(null);
-    setSelectedOverlayId(null);
-    setCameraStatus(null);
+    setPendingText(cleanText);
+    sendMutation.mutate(
+      {
+        conversationId: selectedId ?? undefined,
+        text: cleanText,
+        visionResult: visionSnapshot ?? undefined,
+      },
+      {
+        onSuccess: result => {
+          setSelectedId(result.conversation.id);
+          setPendingText(null);
+          setLastDiagnostics(result.diagnostics);
+          setLastExchange({
+            heard: cleanText,
+            reply: result.assistantMessage.content,
+          });
+          if (autoSpeakRef.current) {
+            setSpeaking(true);
+            void speechOutputRef.current
+              ?.speak(result.assistantMessage.content, () =>
+                setSpeaking(false)
+              )
+              .catch(() => setSpeaking(false));
+          }
+          void utils.lumo.listMemories.invalidate();
+        },
+        onError: error => {
+          setPendingText(null);
+          setFailedText(cleanText);
+          setErrorText(error.message);
+        },
+      }
+    );
   };
 
-  const startNewConversation = () => {
-    setSelectedId(null);
-    setDraft("");
-    setErrorText(null);
-    setFailedText(null);
-    setPendingText(null);
-    setLastDiagnostics(null);
-    setVisionSnapshot(null);
-    setCapturedImage(null);
-    setOverlayModel(null);
-    setTeachingSession(null);
-    setSelectedOverlayId(null);
-    setCameraStatus(null);
+  const muteMic = () => {
+    voiceInputRef.current?.mute();
+    setMicMuted(true);
+    setMicStatus("muted");
+    setInterimText("");
   };
+  const unmuteMic = () => {
+    voiceInputRef.current?.unmute();
+    setMicMuted(false);
+  };
+
+  // Always-on microphone: starts once the page mounts and keeps itself
+  // alive across the whole session, independent of which screen is shown.
+  useEffect(() => {
+    speechOutputRef.current = createSpeechOutput();
+    const input = createVoiceInput();
+    voiceInputRef.current = input;
+
+    void input
+      .start({
+        continuous: true,
+        interimResults: true,
+        onInterim: text => {
+          if (liveCaptionsRef.current) setInterimText(text);
+        },
+        onFinal: text => {
+          setInterimText("");
+          submitText(text);
+        },
+        onError: error => {
+          setMicMuted(true);
+          setMicStatus(
+            error.code === "permission_denied"
+              ? "microphone permission denied"
+              : error.code === "unsupported"
+                ? "not supported in this browser"
+                : error.message
+          );
+        },
+        onStateChange: state => {
+          setMicStatus(state === "listening" ? "listening" : "reconnecting…");
+        },
+      })
+      .then(() => setMicMuted(false))
+      .catch((error: unknown) => {
+        setMicMuted(true);
+        setMicStatus(
+          error instanceof VoiceError
+            ? error.message
+            : "microphone permission was not granted"
+        );
+      });
+
+    return () => {
+      input.stop();
+      speechOutputRef.current?.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Space bar toggles mute, matching the on-screen hint.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      const target = event.target as HTMLElement | null;
+      if (target && ["TEXTAREA", "INPUT"].includes(target.tagName)) return;
+      event.preventDefault();
+      if (micMuted) unmuteMic();
+      else muteMic();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micMuted]);
 
   useEffect(
     () => () => {
@@ -244,6 +307,7 @@ export default function Home() {
   );
 
   const openCamera = async () => {
+    setVisionOpen(true);
     if (cameraSessionRef.current || !cameraVideoRef.current) return;
     setCameraStatus("Requesting camera permission…");
     try {
@@ -252,9 +316,7 @@ export default function Home() {
       });
       cameraSessionRef.current = session;
       setCameraOpen(true);
-      setCameraStatus(
-        "Camera is live. Point it at something, then capture a frame."
-      );
+      setCameraStatus("Camera is live. Capture a frame when you're ready.");
     } catch (error) {
       setCameraStatus(
         error instanceof CameraError
@@ -269,15 +331,13 @@ export default function Home() {
     cameraSessionRef.current?.stop();
     cameraSessionRef.current = null;
     setCameraOpen(false);
-    setCameraStatus("Camera stopped. No frames are uploaded continuously.");
+    setCameraStatus("Camera stopped.");
   };
 
   const captureAndAnalyze = async () => {
     const session = cameraSessionRef.current;
     if (!session || runVisionMutation.isPending) return;
-    setCameraStatus(
-      "Capturing one frame and sending it to LUMO’s vision pipeline…"
-    );
+    setCameraStatus("Analyzing the frame…");
     try {
       const frame = await session.capture();
       session.stop();
@@ -298,32 +358,7 @@ export default function Home() {
         );
       }
       setVisionSnapshot(result.data);
-      setCapturedImage(frame.dataUrl);
-      const nextOverlay =
-        (response as { overlay?: OverlayModel | null }).overlay ?? null;
-      setOverlayModel(nextOverlay);
-      if (nextOverlay) {
-        setTeachingSession({
-          id: `teaching:${result.data.requestId}`,
-          sourceIdentity: result.data.source.identity,
-          annotations: nextOverlay.overlays.map((overlay, index) => ({
-            id: `annotation:${overlay.id}`,
-            type: "red_box" as const,
-            rect: overlay.rect,
-            targetId: overlay.id,
-            title: overlay.label,
-            explanation: `This visual target was identified with ${Math.round((overlay.confidence ?? 0) * 100)}% confidence.`,
-            sequence: index + 1,
-            visible: true,
-          })),
-          currentSequence: 1,
-          active: true,
-          trust: "untrusted_teaching_data",
-        });
-      }
-      setCameraStatus(
-        "Frame analyzed. Ask LUMO a question about what it sees."
-      );
+      setCameraStatus("Frame analyzed — ask about what it saw.");
     } catch (error) {
       setCameraStatus(
         error instanceof Error
@@ -333,131 +368,22 @@ export default function Home() {
     }
   };
 
-  const startVoiceListening = async () => {
-    setInteractionMode("voice");
-    setVoiceStatus("requesting microphone permission");
-    try {
-      await voiceInputRef.current?.startListening(
-        text => {
-          setVoiceStatus("transcription received");
-          submitText(text);
-        },
-        error => {
-          setVoiceStatus(`${error.message} Text mode remains available.`);
-          setInteractionMode("text");
-        }
-      );
-      setVoiceStatus("listening");
-    } catch (error) {
-      setVoiceStatus(
-        error instanceof VoiceError
-          ? error.message
-          : "Microphone unavailable; use text."
-      );
-      setInteractionMode("text");
-    }
+  const addSecureEntry = () => {
+    const note = secureDraft.trim();
+    if (!note) return;
+    const next = [
+      { id: crypto.randomUUID(), note, savedAt: new Date().toISOString() },
+      ...secureVault,
+    ].slice(0, 20);
+    setSecureVault(next);
+    saveSecureVault(next);
+    setSecureDraft("");
   };
 
-  const submitText = (text: string) => {
-    const cleanText = text.trim();
-    if (!cleanText || sendMutation.isPending) return;
-    const modeCommand = detectModeCommand(cleanText);
-    if (modeCommand) {
-      if (modeCommand.mode === "text") {
-        voiceInputRef.current?.cancel();
-        speechOutputRef.current?.stop();
-      }
-      setInteractionMode(modeCommand.mode);
-      setVoiceStatus(`${modeCommand.mode} mode active`);
-      if (modeCommand.mode === "voice") void startVoiceListening();
-      return;
-    }
-    if (
-      /^(?:lumo[,:]?\s*)?(?:camera kholo|open camera|start camera)$/i.test(
-        cleanText
-      )
-    ) {
-      setDraft("");
-      void openCamera();
-      return;
-    }
-    setErrorText(null);
-    setFailedText(null);
-    setPendingText(cleanText);
-    sendMutation.mutate(
-      {
-        conversationId: selectedId ?? undefined,
-        text: cleanText,
-        visionResult: visionSnapshot ?? undefined,
-        visionSelection:
-          selectedOverlayId && visionSnapshot
-            ? {
-                overlayId: selectedOverlayId,
-                sourceIdentity: visionSnapshot.source.identity,
-              }
-            : undefined,
-      },
-      {
-        onSuccess: result => {
-          setSelectedId(result.conversation.id);
-          setPendingText(null);
-          setDraft("");
-          setLastDiagnostics(result.diagnostics);
-          if (interactionMode === "voice") {
-            setVoiceStatus("speaking");
-            void speechOutputRef.current
-              ?.speak(result.assistantMessage.content, () =>
-                setVoiceStatus("listening")
-              )
-              .catch(() =>
-                setVoiceStatus("speech failed; text response available")
-              );
-          }
-          void Promise.all([
-            utils.lumo.listConversations.invalidate(),
-            utils.lumo.getConversation.invalidate({
-              id: result.conversation.id,
-            }),
-          ]);
-        },
-        onError: error => {
-          setPendingText(null);
-          setDraft(cleanText);
-          setFailedText(cleanText);
-          setErrorText(error.message);
-        },
-      }
-    );
-  };
-
-  const handleSend = (event: FormEvent) => {
-    event.preventDefault();
-    submitText(draft);
-  };
-
-  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      submitText(draft);
-    }
-  };
-
-  const addMemory = (event: FormEvent) => {
-    event.preventDefault();
-    const content = memoryDraft.trim();
-    if (!content || memoryMutation.isPending) return;
-    setMemoryStatus(null);
-    memoryMutation.mutate(
-      { kind: memoryKind, content, importance: 60 },
-      {
-        onSuccess: () => {
-          setMemoryDraft("");
-          setMemoryStatus("Saved to Peter’s local memory store.");
-          void utils.lumo.listMemories.invalidate();
-        },
-        onError: error => setMemoryStatus(error.message),
-      }
-    );
+  const removeSecureEntry = (id: string) => {
+    const next = secureVault.filter(entry => entry.id !== id);
+    setSecureVault(next);
+    saveSecureVault(next);
   };
 
   const authenticateSensitiveAction = async () => {
@@ -499,752 +425,337 @@ export default function Home() {
     );
   }
 
+  const orbState: LumoOrbState = micMuted
+    ? "muted"
+    : pendingText
+      ? "thinking"
+      : speaking
+        ? "speaking"
+        : "listening";
+
+  const statusCopy = micMuted
+    ? "Muted — tap to resume"
+    : pendingText
+      ? "Thinking…"
+      : speaking
+        ? "Speaking…"
+        : micStatus === "listening"
+          ? "Listening — go ahead, Peter"
+          : micStatus;
+
+  const sessionLabel = (() => {
+    const totalSeconds = Math.floor(sessionElapsed / 1000);
+    const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+    const ss = String(totalSeconds % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  })();
+
   return (
-    <div className="lumo-shell">
-      <header className="lumo-topbar">
-        <div className="lumo-brand">
-          <span className="lumo-mark" aria-hidden="true">
-            <CircleDot size={18} />
-          </span>
-          <div>
-            <div className="lumo-wordmark">LUMO</div>
-            <div className="lumo-kicker">
-              personal intelligence / testing build
-            </div>
-          </div>
-        </div>
-        <div className="lumo-topbar-meta">
-          <span className="status-pill">
-            <span className={`status-dot ${pendingText ? "busy" : ""}`} />
-            {pendingText ? "processing" : "core online"}
-          </span>
-          <span className="mode-chip">{workspacePreset}</span>
-          <span className="mono">owner: Peter</span>
-        </div>
-      </header>
+    <div className="lv-shell">
+      <div className="lv-glow" />
 
-      <div className="lumo-workbench">
-        <aside className="lumo-sidebar" aria-label="Conversation history">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">workspace</p>
-              <h2>Conversations</h2>
-            </div>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={startNewConversation}
-              aria-label="New conversation"
-              title="New conversation"
+      <div className="lv-top">
+        <div className="lv-brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#lv-g1)" strokeWidth={1.6}>
+            <defs>
+              <linearGradient id="lv-g1" x1="0" x2="1">
+                <stop offset="0" stopColor="#33d6ff" />
+                <stop offset="1" stopColor="#a566ff" />
+              </linearGradient>
+            </defs>
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="12" r="3" fill="url(#lv-g1)" />
+          </svg>
+          LUMO <small>Personal AI</small>
+        </div>
+        <div className="lv-top-right">
+          <span className={`lv-pill ${micMuted ? "lv-mic-off" : "lv-mic-on"}`}>
+            {micMuted ? <MicOff /> : <Mic />}
+            {micMuted ? "Muted" : "Always listening"}
+          </span>
+          <span className="lv-pill">
+            <i />
+            {diagnosticsQuery.data?.apiConfigured ? "Online" : "Degraded"}
+          </span>
+          <span className="lv-av">P</span>
+        </div>
+      </div>
+
+      <div className="lv-tabs">
+        <button type="button" className="lv-tab lv-on">
+          <CircleDot /> Home
+        </button>
+        {["Study", "Coding", "Browser", "Files", "Vision", "Blueprint", "Settings"].map(
+          label => (
+            <button type="button" className="lv-tab" key={label} disabled>
+              {label}
+              <span className="lv-tab-soon">soon</span>
+            </button>
+          )
+        )}
+      </div>
+
+      <div className="lv-rail lv-left">
+        <div className="lv-card">
+          <h4>Voice settings</h4>
+          <div className="lv-mode-row">
+            Live captions
+            <button
+              type="button"
+              className={`lv-sw ${liveCaptions ? "lv-on" : ""}`}
+              onClick={() => setLiveCaptions(v => !v)}
             >
-              <Plus size={16} />
-            </Button>
+              <i />
+              <b />
+            </button>
           </div>
-          <Button
-            className="new-conversation-button"
-            variant="secondary"
-            onClick={startNewConversation}
-          >
-            <Plus size={15} /> New conversation
-          </Button>
-          <div className="conversation-list">
-            {conversationsQuery.isLoading && (
-              <div className="empty-note">
-                <Loader2 className="spin" size={15} /> loading history
-              </div>
-            )}
-            {!conversationsQuery.isLoading &&
-              !conversationsQuery.data?.length && (
-                <div className="empty-note">
-                  No saved conversations yet. Start with a question.
-                </div>
-              )}
-            {conversationsQuery.data?.map(conversation => (
-              <button
-                type="button"
-                key={conversation.id}
-                className={`conversation-row ${selectedId === conversation.id ? "selected" : ""}`}
-                onClick={() => selectConversation(conversation.id)}
-              >
-                <span className="conversation-row-copy">
-                  <strong>{conversation.title}</strong>
-                  <span>
-                    {formatDate(conversation.updatedAt)} · depth{" "}
-                    {conversation.depthLevel}
-                  </span>
-                </span>
-                <ChevronRight size={14} />
-              </button>
-            ))}
+          <div className="lv-mode-row">
+            Auto-speak replies
+            <button
+              type="button"
+              className={`lv-sw ${autoSpeak ? "lv-on" : ""}`}
+              onClick={() => setAutoSpeak(v => !v)}
+            >
+              <i />
+              <b />
+            </button>
           </div>
-          <div className="sidebar-footer">
-            <div className="footer-line">
-              <Database size={14} /> managed persistence
-            </div>
-            <div className="footer-line">
-              <ShieldCheck size={14} /> server-only provider key
-            </div>
+        </div>
+        <div className="lv-card">
+          <h4>System</h4>
+          <div className="lv-mode-row">
+            Core{" "}
+            <b style={{ color: "#4ade80", fontWeight: 600 }}>
+              {diagnosticsQuery.data ? "Stable" : "Checking…"}
+            </b>
           </div>
-        </aside>
-
-        <main className="lumo-main">
-          <section className="lumo-hud" aria-label="LUMO live workspace">
-            <div className="orb-card">
-              <div
-                className={`lumo-orb ${pendingText ? "orb-active" : ""} ${interactionMode === "voice" ? "orb-voice" : ""}`}
-                aria-hidden="true"
-              >
-                <span />
-              </div>
-              <div>
-                <p className="eyebrow">live intelligence</p>
-                <strong>
-                  {pendingText
-                    ? "Processing request"
-                    : interactionMode === "voice"
-                      ? voiceStatus
-                      : "Ready for direction"}
-                </strong>
-                <span className="hud-subtitle">
-                  {cameraOpen
-                    ? "camera session active"
-                    : "single-user secure workspace"}
-                </span>
-              </div>
-            </div>
-            <div className="hud-metrics">
-              <div>
-                <span>turns</span>
-                <strong>{conversationsQuery.data?.length ?? 0}</strong>
-              </div>
-              <div>
-                <span>telemetry</span>
-                <strong>{performanceSummaryQuery.data?.count ?? 0}</strong>
-              </div>
-              <div>
-                <span>latency</span>
-                <strong>
-                  {lastDiagnostics ? `${lastDiagnostics.elapsedMs}ms` : "—"}
-                </strong>
-              </div>
-            </div>
-            <div className="hud-actions">
-              <button
-                type="button"
-                onClick={() => setDraft("Summarize my current workspace")}
-              >
-                <Sparkles size={13} /> Quick brief
-              </button>
-              <button
-                type="button"
-                onClick={() => void openCamera()}
-                disabled={cameraOpen}
-              >
-                <Camera size={13} /> Vision
-              </button>
-              <select
-                value={workspacePreset}
-                onChange={event => setWorkspacePreset(event.target.value)}
-                aria-label="Workspace preset"
-              >
-                <option>Peter Mode</option>
-                <option>Study</option>
-                <option>Coding</option>
-                <option>Creator</option>
-                <option>Gaming</option>
-              </select>
-              <button
-                type="button"
-                onClick={() => void authenticateSensitiveAction()}
-                title="Verify sensitive actions"
-              >
-                <Fingerprint size={13} /> Secure
-              </button>
-            </div>
-          </section>
-          <div className="conversation-header">
-            <div>
-              <p className="eyebrow">
-                conversation / {selectedId ? selectedId.slice(0, 8) : "unsaved"}
-              </p>
-              <h1>{displayTitle}</h1>
-            </div>
-            <div className="conversation-header-actions">
-              {activeConversation && (
-                <span className="mono muted">
-                  depth {activeConversation.depthLevel}
-                </span>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void conversationQuery.refetch()}
-                disabled={!selectedId || conversationQuery.isFetching}
-              >
-                <RefreshCw
-                  size={14}
-                  className={conversationQuery.isFetching ? "spin" : ""}
-                />{" "}
-                Refresh
-              </Button>
-            </div>
+          <div className="lv-mode-row">
+            Provider{" "}
+            <b style={{ color: "#e6e6ea", fontWeight: 600 }}>
+              {diagnosticsQuery.data?.provider ?? "—"}
+            </b>
           </div>
-
-          <section className="workspace-grid" aria-label="Live Workspace">
-            <div className="live-workspace-card">
-              <div className="workspace-card-heading">
-                <div>
-                  <p className="eyebrow">live workspace</p>
-                  <strong>
-                    {pendingText
-                      ? "Executing LUMO task"
-                      : "Workspace standing by"}
-                  </strong>
-                </div>
-                <span className="workspace-live-indicator">
-                  <span /> {pendingText ? "active" : "ready"}
-                </span>
-              </div>
-              <div className="task-progress-track" aria-label="Task progress">
-                <span style={{ width: pendingText ? "58%" : "100%" }} />
-              </div>
-              <div className="activity-timeline">
-                <div className="activity-item complete">
-                  <span>01</span>
-                  <div>
-                    <strong>Input channel</strong>
-                    <small>{interactionMode} interface armed</small>
-                  </div>
-                </div>
-                <div
-                  className={`activity-item ${pendingText ? "active" : "complete"}`}
-                >
-                  <span>02</span>
-                  <div>
-                    <strong>Context assembly</strong>
-                    <small>
-                      {pendingText
-                        ? "retrieving memory and workspace context"
-                        : `${messages.length} conversation messages available`}
-                    </small>
-                  </div>
-                </div>
-                <div
-                  className={`activity-item ${pendingText ? "queued" : "complete"}`}
-                >
-                  <span>03</span>
-                  <div>
-                    <strong>Response synthesis</strong>
-                    <small>
-                      {pendingText
-                        ? "provider task in progress"
-                        : "ready for the next instruction"}
-                    </small>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="quick-actions-card">
-              <div className="workspace-card-heading">
-                <div>
-                  <p className="eyebrow">command deck</p>
-                  <strong>Quick actions</strong>
-                </div>
-                <Sparkles size={16} />
-              </div>
-              <div className="quick-action-grid">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft(
-                      "Plan my next priorities and show them as a focused checklist"
-                    )
-                  }
-                >
-                  <Check size={14} /> Plan priorities
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft(
-                      "Research this topic and summarize the trusted sources"
-                    )
-                  }
-                >
-                  <Activity size={14} /> Research
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void startVoiceListening()}
-                >
-                  <Mic size={14} /> Voice input
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void openCamera()}
-                  disabled={cameraOpen}
-                >
-                  <Camera size={14} /> Live vision
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <div className="message-stage">
-            {!selectedId && !pendingText && (
-              <div className="welcome-card">
-                <div className="welcome-icon">
-                  <BrainCircuit size={22} />
-                </div>
-                <p className="eyebrow">LUMO core ready</p>
-                <h2>Start a focused test.</h2>
-                <p>
-                  Try a normal question, add a memory in the diagnostics panel,
-                  or ask “Go deeper.” after an explanation to test context
-                  continuity.
-                </p>
-                <div className="test-steps">
-                  <span>
-                    <Check size={14} /> one provider
-                  </span>
-                  <span>
-                    <Check size={14} /> structured memory
-                  </span>
-                  <span>
-                    <Check size={14} /> persistent turns
-                  </span>
-                </div>
-              </div>
-            )}
-            {messages.map(message => (
-              <article
-                className={`message-row ${message.role}`}
-                key={message.id}
-              >
-                <div className="message-meta">
-                  <span>
-                    {message.role === "assistant" ? "LUMO" : message.role}
-                  </span>
-                  <span>{formatTime(message.createdAt)}</span>
-                </div>
-                <div className="message-bubble">
-                  {message.role === "assistant" ? (
-                    <Streamdown>{message.content}</Streamdown>
-                  ) : (
-                    <p>{message.content}</p>
-                  )}
-                </div>
-              </article>
-            ))}
-            {pendingText && (
-              <>
-                <article className="message-row user pending-message">
-                  <div className="message-meta">
-                    <span>user</span>
-                    <span>sending</span>
-                  </div>
-                  <div className="message-bubble">
-                    <p>{pendingText}</p>
-                  </div>
-                </article>
-                <article className="message-row assistant pending-message">
-                  <div className="message-meta">
-                    <span>LUMO</span>
-                    <span>
-                      <Loader2 size={13} className="spin" /> thinking
-                    </span>
-                  </div>
-                  <div className="message-bubble thinking-bubble">
-                    <span className="thinking-bar" />
-                    <span className="thinking-bar short" />
-                  </div>
-                </article>
-              </>
-            )}
-            {conversationQuery.isLoading && selectedId && !pendingText && (
-              <div className="empty-note centered">
-                <Loader2 className="spin" size={15} /> loading conversation
-              </div>
-            )}
+        </div>
+        <div className="lv-card lv-secure-card">
+          <div className="lv-secure-title">
+            <LockKeyhole />
+            <span>Secure input</span>
           </div>
-
-          {errorText && (
-            <div className="error-banner" role="alert">
-              <AlertTriangle size={16} />
-              <span>{errorText}</span>
-              {failedText && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => submitText(failedText)}
-                  disabled={sendMutation.isPending}
-                >
-                  Retry
-                </Button>
-              )}
-            </div>
-          )}
-
-          <section className="camera-panel" aria-label="LUMO camera">
-            <div className="camera-panel-header">
-              <div>
-                <p className="eyebrow">visual input</p>
-                <strong>Camera to LUMO</strong>
-              </div>
-              <Camera size={16} className="muted" />
-            </div>
-            <video
-              ref={cameraVideoRef}
-              className={`camera-preview ${cameraOpen ? "visible" : ""}`}
-              autoPlay
-              muted
-              playsInline
-              aria-label="Live camera preview"
-            />
-            <div className="camera-controls">
-              <Button
-                type="button"
-                variant={interactionMode === "voice" ? "default" : "outline"}
-                size="sm"
-                onClick={() => void startVoiceListening()}
-              >
-                <Mic size={14} />{" "}
-                {interactionMode === "voice" ? "Listening" : "Voice mode"}
-              </Button>
-              {!cameraOpen ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void openCamera()}
-                  disabled={runVisionMutation.isPending}
-                >
-                  <Camera size={14} /> Open camera
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => void captureAndAnalyze()}
-                    disabled={runVisionMutation.isPending}
-                  >
-                    {runVisionMutation.isPending ? (
-                      <Loader2 size={14} className="spin" />
-                    ) : (
-                      <ScanEye size={14} />
-                    )}
-                    Capture & analyze
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={closeCamera}
-                    disabled={runVisionMutation.isPending}
-                  >
-                    <CameraOff size={14} /> Stop
-                  </Button>
-                </>
-              )}
-            </div>
-            <p className="camera-status">
-              mode: {interactionMode} · {voiceStatus}
-            </p>
-            {cameraStatus && <p className="camera-status">{cameraStatus}</p>}
-            {visionSnapshot && (
-              <div className="vision-snapshot">
-                <span className="memory-kind">current visual context</span>
-                <p>
-                  {visionSnapshot.description ||
-                    "Frame analyzed. Ask a question below."}
-                </p>
-                <button
-                  type="button"
-                  className="camera-clear"
-                  onClick={() => {
-                    setVisionSnapshot(null);
-                    setCapturedImage(null);
-                    setOverlayModel(null);
-                    setTeachingSession(null);
-                  }}
-                >
-                  Clear visual context
-                </button>
-                {capturedImage &&
-                  overlayModel &&
-                  overlayModel.overlays.length > 0 && (
-                    <VisualOverlay
-                      imageSrc={capturedImage}
-                      model={overlayModel}
-                      onSelect={overlay => {
-                        setSelectedOverlayId(overlay.id);
-                        setCameraStatus(
-                          `Selected visual target: ${overlay.label}`
-                        );
-                      }}
-                    />
-                  )}
-                {interactionMode === "teaching" &&
-                  capturedImage &&
-                  teachingSession && (
-                    <TeachingOverlay
-                      imageSrc={capturedImage}
-                      session={teachingSession}
-                      onChange={setTeachingSession}
-                    />
-                  )}
-              </div>
-            )}
-          </section>
-
-          <form className="composer" onSubmit={handleSend}>
-            <Textarea
-              value={draft}
-              onChange={event => setDraft(event.target.value)}
-              onKeyDown={handleComposerKeyDown}
-              placeholder="Message LUMO…"
-              rows={3}
-              disabled={sendMutation.isPending}
-              aria-label="Message LUMO"
-            />
-            <div className="composer-footer">
-              <span className="composer-hint">
-                Cmd/Ctrl + Enter to send · input is kept on failure
-              </span>
-              <Button
-                type="submit"
-                disabled={!draft.trim() || sendMutation.isPending}
-              >
-                {sendMutation.isPending ? (
-                  <Loader2 size={15} className="spin" />
-                ) : (
-                  <Send size={15} />
-                )}{" "}
-                Send
-              </Button>
-            </div>
-          </form>
-        </main>
-
-        <aside className="lumo-inspector" aria-label="LUMO diagnostics">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">instrumentation</p>
-              <h2>Diagnostics</h2>
-            </div>
-            <Terminal size={17} className="muted" />
+          <div className="lv-secure-note">
+            For passwords, API keys, tokens — anything you can't say out
+            loud. Stored on this device only; never spoken, never sent to
+            the model.
           </div>
-
-          <section className="inspector-section">
-            <div className="section-label">
-              <span>runtime</span>
-              <span className="mono">safe view</span>
-            </div>
-            <div className="diagnostic-list">
-              <DiagnosticRow
-                label="provider"
-                value={diagnosticsQuery.data?.provider ?? "loading"}
-              />
-              <DiagnosticRow
-                label="api"
-                value={
-                  diagnosticsQuery.data?.apiConfigured
-                    ? "configured"
-                    : "not configured"
-                }
-                tone={diagnosticsQuery.data?.apiConfigured ? "good" : "warn"}
-              />
-              <DiagnosticRow
-                label="database"
-                value={
-                  diagnosticsQuery.data?.databaseConfigured
-                    ? "configured"
-                    : "not configured"
-                }
-                tone={
-                  diagnosticsQuery.data?.databaseConfigured ? "good" : "warn"
-                }
-              />
-              <DiagnosticRow
-                label="model"
-                value={diagnosticsQuery.data?.model ?? "loading"}
-              />
-              <DiagnosticRow
-                label="timeout"
-                value={
-                  diagnosticsQuery.data
-                    ? `${Math.round(diagnosticsQuery.data.timeoutMs / 1000)}s`
-                    : "—"
-                }
-              />
-            </div>
-          </section>
-
-          <section className="inspector-section">
-            <div className="section-label">
-              <span>connections</span>
-              <Activity size={14} />
-            </div>
-            <div className="connection-grid">
-              <DiagnosticRow
-                label="GitHub"
-                value={
-                  githubCatalogQuery.data?.providerMode ===
-                  "mock_disconnected_until_explicit_provider_connection"
-                    ? "disconnected"
-                    : "connected"
-                }
-                tone="warn"
-              />
-              <DiagnosticRow
-                label="Gmail"
-                value={
-                  gmailCatalogQuery.data?.providerMode ===
-                  "mock_disconnected_until_explicit_provider_connection"
-                    ? "disconnected"
-                    : "connected"
-                }
-                tone="warn"
-              />
-            </div>
-            <p className="empty-note">
-              OAuth is user-initiated and not configured in this build.
-            </p>
-          </section>
-
-          <section className="inspector-section">
-            <div className="section-label">
-              <span>security layer</span>
-              <ShieldCheck size={14} />
-            </div>
-            <p className="empty-note">{securityStatus}</p>
-          </section>
-
-          <section className="inspector-section">
-            <div className="section-label">
-              <span>last turn</span>
-              <Clock3 size={14} />
-            </div>
-            {lastDiagnostics ? (
-              <div className="diagnostic-list">
-                <DiagnosticRow
-                  label="request"
-                  value={lastDiagnostics.requestId}
-                  mono
-                />
-                <DiagnosticRow
-                  label="elapsed"
-                  value={`${lastDiagnostics.elapsedMs}ms`}
-                  mono
-                />
-                <DiagnosticRow
-                  label="context"
-                  value={`${lastDiagnostics.contextMessageCount} messages`}
-                />
-                <DiagnosticRow
-                  label="memory"
-                  value={`${lastDiagnostics.retrievedMemoryCount} retrieved`}
-                />
-                <DiagnosticRow
-                  label="depth"
-                  value={`level ${lastDiagnostics.depthLevel}`}
-                />
-              </div>
-            ) : (
-              <p className="empty-note">
-                Send a message to inspect the assembled context.
-              </p>
-            )}
-          </section>
-
-          <section className="inspector-section memory-section">
-            <div className="section-label">
-              <span>memory test</span>
-              <Save size={14} />
-            </div>
-            <form onSubmit={addMemory} className="memory-form">
-              <select
-                value={memoryKind}
-                onChange={event =>
-                  setMemoryKind(event.target.value as MemoryKind)
-                }
-                aria-label="Memory type"
-              >
-                <option value="fact">fact</option>
-                <option value="preference">preference</option>
-                <option value="project">project</option>
-                <option value="summary">summary</option>
-                <option value="knowledge">knowledge</option>
-              </select>
-              <Textarea
-                value={memoryDraft}
-                onChange={event => setMemoryDraft(event.target.value)}
-                placeholder="Add a useful memory for Peter…"
-                rows={3}
-              />
-              <Button
-                type="submit"
-                variant="outline"
-                size="sm"
-                disabled={!memoryDraft.trim() || memoryMutation.isPending}
-              >
-                {memoryMutation.isPending ? (
-                  <Loader2 size={14} className="spin" />
-                ) : (
-                  <Save size={14} />
-                )}{" "}
-                Save memory
-              </Button>
-            </form>
-            {memoryStatus && <p className="memory-status">{memoryStatus}</p>}
-            <div className="memory-list">
-              {!sortedMemories.length && (
-                <p className="empty-note">No stored memories yet.</p>
-              )}
-              {sortedMemories.map(memory => (
-                <div className="memory-item" key={memory.id}>
-                  <div>
-                    <span className="memory-kind">{memory.kind}</span>
-                    <span className="mono muted">
-                      {" "}
-                      importance {memory.importance}
-                    </span>
-                  </div>
-                  <p>{memory.content}</p>
+          <textarea
+            className="lv-secure-box"
+            placeholder="Type a secret or sensitive note…"
+            value={secureDraft}
+            onChange={event => setSecureDraft(event.target.value)}
+            rows={3}
+          />
+          <div className="lv-secure-actions">
+            <span className="lv-lock-hint">
+              <LockKeyhole />
+              local only
+            </span>
+            <button
+              type="button"
+              className="lv-secure-send"
+              disabled={!secureDraft.trim()}
+              onClick={addSecureEntry}
+            >
+              Save securely
+            </button>
+          </div>
+          {secureVault.length > 0 && (
+            <div className="lv-secure-list">
+              {secureVault.slice(0, 3).map(entry => (
+                <div className="lv-secure-item" key={entry.id}>
+                  <span>{"•".repeat(Math.min(entry.note.length, 18))}</span>
+                  <button type="button" onClick={() => removeSecureEntry(entry.id)}>
+                    remove
+                  </button>
                 </div>
               ))}
             </div>
-          </section>
-
-          <section className="inspector-section blueprint-section">
-            <div className="section-label">
-              <span>blueprint workspace</span>
-              <span className="mono">safe view</span>
-            </div>
-            <BlueprintCanvas blueprint={WORKBENCH_BLUEPRINT} />
-          </section>
-        </aside>
+          )}
+        </div>
       </div>
-    </div>
-  );
-}
 
-function DiagnosticRow({
-  label,
-  value,
-  tone = "neutral",
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  tone?: "neutral" | "good" | "warn";
-  mono?: boolean;
-}) {
-  return (
-    <div className="diagnostic-row">
-      <span>{label}</span>
-      <strong className={`${tone} ${mono ? "mono" : ""}`}>{value}</strong>
+      <div className="lv-rail lv-right">
+        <div className="lv-card">
+          <h4>Recent</h4>
+          {sortedMemories.length === 0 && (
+            <p style={{ fontSize: 12, color: "var(--lv-mut)" }}>
+              Nothing saved yet — it'll show up here as Lumo learns things.
+            </p>
+          )}
+          {sortedMemories.map(memory => (
+            <div className="lv-log-row" key={memory.id}>
+              <div className="lv-log-ico">
+                <Database />
+              </div>
+              <div>
+                <b>{memory.kind.replace(/_/g, " ")}</b>
+                <span>{memory.content.slice(0, 56)}</span>
+                <time>
+                  {new Date(memory.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="lv-stage">
+        <div className={`lv-kicker ${micMuted ? "lv-muted-kicker" : ""}`}>
+          <i />
+          {micMuted ? "Voice link paused" : "Voice link active"}
+        </div>
+
+        <LumoOrb state={orbState} size={220} />
+
+        <div className="lv-wordmark">
+          L<span>.</span>U<span>.</span>M<span>.</span>O
+        </div>
+        <div className={`lv-status-line ${micMuted ? "lv-muted" : ""}`}>
+          <i />
+          {statusCopy}
+        </div>
+
+        <div className={`lv-wave ${micMuted || pendingText ? "lv-idle" : ""}`}>
+          {Array.from({ length: 7 }).map((_, index) => (
+            <i key={index} style={{ animationDelay: `${index * 0.07}s` }} />
+          ))}
+        </div>
+
+        {liveCaptions && interimText && !micMuted && (
+          <div className="lv-interim">&ldquo;{interimText}&hellip;&rdquo;</div>
+        )}
+
+        {lastExchange && (
+          <div className="lv-transcript">
+            &ldquo;{lastExchange.heard}&rdquo;
+            <br />
+            <b>{lastExchange.reply}</b>
+          </div>
+        )}
+
+        <button
+          type="button"
+          className={`lv-talk ${micMuted ? "lv-talk-muted" : ""}`}
+          onClick={() => (micMuted ? unmuteMic() : muteMic())}
+        >
+          {micMuted ? <Mic /> : <MicOff />}
+          {micMuted ? "Resume listening" : "Mute microphone"}
+        </button>
+        <div className="lv-talk-hint">
+          always on &mdash; follows you across every screen &nbsp;&middot;&nbsp;{" "}
+          <kbd>Space</kbd> to {micMuted ? "resume" : "mute"}
+        </div>
+
+        <button
+          type="button"
+          className="lv-vision-toggle"
+          onClick={() => (visionOpen ? setVisionOpen(false) : void openCamera())}
+        >
+          <Camera />
+          {visionOpen ? "Hide vision" : "Show Lumo what you see"}
+        </button>
+
+        {visionOpen && (
+          <div className="lv-vision-panel">
+            <video
+              ref={cameraVideoRef}
+              className={`lv-vision-video ${cameraOpen ? "lv-visible" : ""}`}
+              autoPlay
+              muted
+              playsInline
+            />
+            <div className="lv-vision-body">
+              <div className="lv-vision-actions">
+                {!cameraOpen ? (
+                  <button
+                    type="button"
+                    className="lv-vbtn"
+                    onClick={() => void openCamera()}
+                  >
+                    <Camera /> Open camera
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="lv-vbtn"
+                      onClick={() => void captureAndAnalyze()}
+                      disabled={runVisionMutation.isPending}
+                    >
+                      {runVisionMutation.isPending ? (
+                        <Loader2 className="spin" />
+                      ) : (
+                        <ScanEye />
+                      )}
+                      Capture &amp; analyze
+                    </button>
+                    <button type="button" className="lv-vbtn" onClick={closeCamera}>
+                      <CameraOff /> Stop
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="lv-vbtn"
+                  onClick={() => void authenticateSensitiveAction()}
+                >
+                  <Fingerprint /> Secure
+                </button>
+              </div>
+              {cameraStatus && <span>{cameraStatus}</span>}
+              {visionSnapshot?.description && (
+                <span>{visionSnapshot.description}</span>
+              )}
+              <span style={{ opacity: 0.7 }}>{securityStatus}</span>
+            </div>
+          </div>
+        )}
+
+        {errorText && (
+          <div className="lv-error-banner" role="alert">
+            <AlertTriangle />
+            <span>{errorText}</span>
+            {failedText && (
+              <button
+                type="button"
+                onClick={() => submitText(failedText)}
+                disabled={sendMutation.isPending}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="lv-stats">
+        <div className="lv-stat">
+          <div className="lv-l">Memory</div>
+          <b>{memoriesQuery.data?.length ?? 0}</b>
+          <div className="lv-s">records stored</div>
+        </div>
+        <div className="lv-stat">
+          <div className="lv-l">Latency</div>
+          <b>{lastDiagnostics ? `${lastDiagnostics.elapsedMs}ms` : "—"}</b>
+          <div className="lv-s">response time</div>
+        </div>
+        <div className="lv-stat">
+          <div className="lv-l">Session</div>
+          <b>{sessionLabel}</b>
+          <div className="lv-s">time active</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1298,7 +809,7 @@ function AuthenticationScreen({
             aria-label="Available workspace areas"
           >
             <span>
-              <Sparkles size={14} /> Chat
+              <Sparkles size={14} /> Voice
             </span>
             <span>
               <Activity size={14} /> Live Workspace
