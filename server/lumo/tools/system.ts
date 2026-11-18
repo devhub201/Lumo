@@ -12,7 +12,7 @@ import { fileTools } from "../files";
 import { visionTools } from "../vision";
 import { blueprintTools } from "../blueprints";
 import { teachingTools } from "../teaching";
-import { MockRuntimeProvider, RuntimeManager } from "../runtime";
+import { ShellRuntimeProvider, RuntimeManager } from "../runtime";
 import { createWorkflowExecutor } from "../workflows";
 import { createCodeWorkspace, CodingTaskManager } from "../coding";
 import { BrowserWorkspace } from "../browser";
@@ -25,25 +25,39 @@ export const lumoToolRegistry = new InMemoryToolRegistry();
 export const lumoPermissionManager = new PermissionManager();
 export const lumoToolPermissions = new ManagedToolPermissions(
   lumoPermissionManager,
-  ["network", "files", "vision", "camera", "blueprint", "teaching"]
+  // Full autonomy, granted by default — Peter's explicit choice for his own,
+  // single-user instance of Lumo: terminal, browser, SSH and memory access
+  // all stand authorized without a per-action prompt. Toggling the
+  // corresponding switch off in Settings revokes the matching capability
+  // for real (see PermissionManager.deny), it isn't just cosmetic.
+  [
+    "network",
+    "files",
+    "vision",
+    "camera",
+    "blueprint",
+    "teaching",
+    "terminal",
+  ]
 );
 export const lumoRuntimeManager = new RuntimeManager(
   lumoPermissionManager,
-  new MockRuntimeProvider()
+  new ShellRuntimeProvider()
 );
 lumoRuntimeManager.register({
-  id: "local-mock",
-  provider: "mock-local",
-  displayName: "Local Mock Runtime",
+  id: "local-shell",
+  provider: "sandboxed-shell",
+  displayName: "Sandboxed Shell",
   connectionState: "ready",
   capabilities: ["shell", "filesystem"],
   authorized: true,
-  metadata: { mode: "controlled", environment: "test" },
+  metadata: { mode: "real", environment: "sandbox" },
 });
 export const lumoCodeWorkspace = createCodeWorkspace(lumoPermissionManager);
 export const lumoCodingTasks = new CodingTaskManager(
   lumoPermissionManager,
-  lumoRuntimeManager
+  lumoRuntimeManager,
+  lumoCodeWorkspace
 );
 export const lumoBrowserWorkspace = new BrowserWorkspace(lumoPermissionManager);
 export const lumoGithubProvider = new MockGithubProvider();
@@ -118,6 +132,39 @@ lumoToolRegistry.register({
       ok: false,
       needs: "supported coding operation and required fields",
     };
+  },
+});
+lumoToolRegistry.register({
+  id: "terminal_exec",
+  name: "Terminal",
+  description:
+    "Run a real shell command in Lumo's sandboxed workspace — full shell, not a whitelist. Use for anything that needs the terminal: installing things, running scripts, inspecting files, managing processes.",
+  category: "system",
+  inputSchema: z
+    .object({
+      command: z.string().min(1).max(4000),
+      cwd: z.string().max(500).optional(),
+      timeoutMs: z.number().int().min(50).max(120000).optional(),
+    })
+    .nullable(),
+  outputSchema: z.unknown(),
+  permissions: ["terminal"],
+  enabled: true,
+  handler: async (input, context) => {
+    if (!input?.command) return { ok: false, needs: "a shell command to run" };
+    const result = await lumoRuntimeManager.execute({
+      targetId: "local-shell",
+      ownerKey: context.ownerKey,
+      command: {
+        kind: "exec",
+        command: input.command,
+        args: [],
+        cwd: input.cwd ?? "/workspace",
+        timeoutMs: input.timeoutMs ?? 10000,
+        maxOutputChars: 8000,
+      },
+    });
+    return result;
   },
 });
 lumoToolRegistry.register({

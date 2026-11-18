@@ -47,6 +47,10 @@ export class CodeWorkspaceManager {
       throw new Error("Invalid project identity.");
     return path.join(root(), ownerHash(owner), id);
   }
+  /** Absolute on-disk directory for a project, for real shell execution against it. */
+  projectDirectory(owner: string, id: string) {
+    return this.projectRoot(owner, id);
+  }
   private safe(owner: string, id: string, file: string) {
     relativePathSchema.parse(file);
     const base = this.projectRoot(owner, id);

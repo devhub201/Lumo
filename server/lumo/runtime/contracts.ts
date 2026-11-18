@@ -36,17 +36,27 @@ export const runtimeCommandSchema = z
       "project_test",
       "project_build",
       "project_lint",
+      // Real, unrestricted shell execution inside the sandbox workspace —
+      // this is what backs the Coding/Terminal screen's "full shell" access.
+      "exec",
     ]),
     args: z.array(z.string().max(300)).max(4).default([]),
+    // The raw shell line for the "exec" kind. Not whitelisted — Peter asked
+    // for genuine terminal access, so this runs whatever is given, scoped
+    // to the sandbox workspace directory rather than the Lumo server's own
+    // source tree.
+    command: z.string().max(4000).optional(),
     cwd: z.string().min(1).max(500).default("/workspace"),
-    timeoutMs: z.number().int().min(50).max(10000).default(3000),
-    maxOutputChars: z.number().int().min(100).max(10000).default(4000),
+    timeoutMs: z.number().int().min(50).max(120000).default(10000),
+    maxOutputChars: z.number().int().min(100).max(20000).default(8000),
   })
   .superRefine((command, ctx) => {
     if (command.cwd.includes("..") || command.cwd.includes("\\"))
       ctx.addIssue({ code: "custom", message: "unsafe working directory" });
     if (command.kind === "echo" && command.args.length > 1)
       ctx.addIssue({ code: "custom", message: "echo accepts one argument" });
+    if (command.kind === "exec" && !command.command?.trim())
+      ctx.addIssue({ code: "custom", message: "exec requires a command" });
   });
 export type RuntimeCommand = z.infer<typeof runtimeCommandSchema>;
 export type RuntimeExecution = {

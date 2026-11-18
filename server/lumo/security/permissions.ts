@@ -119,6 +119,7 @@ const TOOL_CAPABILITY: Record<string, PermissionCapability> = {
   blueprint: "memory_access",
   teaching: "camera",
   external: "external_integrations",
+  terminal: "terminal_runtime",
 };
 export const capabilityForToolPermission = (
   permission: string
