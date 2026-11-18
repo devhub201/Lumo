@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid";
 import { lumoLogger } from "../logger";
 import { ToolExecutor } from "./executor";
 import { ManagedToolPermissions } from "../security/tool-permissions";
@@ -16,6 +17,7 @@ import { ShellRuntimeProvider, RuntimeManager } from "../runtime";
 import { createWorkflowExecutor } from "../workflows";
 import { createCodeWorkspace, CodingTaskManager } from "../coding";
 import { BrowserWorkspace } from "../browser";
+import { PlaywrightBrowserProvider } from "../browser/playwright-provider";
 import { z } from "zod";
 import { GithubManager, MockGithubProvider } from "../github";
 import { GmailManager, MockGmailProvider } from "../gmail";
@@ -59,7 +61,13 @@ export const lumoCodingTasks = new CodingTaskManager(
   lumoRuntimeManager,
   lumoCodeWorkspace
 );
-export const lumoBrowserWorkspace = new BrowserWorkspace(lumoPermissionManager);
+// Real Chromium under the hood, not a fetch-only reader — this is what lets
+// Lumo click buttons, fill forms and log in on Peter's behalf.
+export const lumoPlaywrightProvider = new PlaywrightBrowserProvider();
+export const lumoBrowserWorkspace = new BrowserWorkspace(
+  lumoPermissionManager,
+  lumoPlaywrightProvider
+);
 export const lumoGithubProvider = new MockGithubProvider();
 export const lumoGithub = new GithubManager(
   lumoPermissionManager,
@@ -171,13 +179,15 @@ lumoToolRegistry.register({
   id: "browser_workspace",
   name: "Browser Workspace",
   description:
-    "Open and extract bounded web pages as explicitly marked untrusted data.",
+    "Drive a real, interactive browser — navigate, click, type into fields, choose dropdown options, scroll, and extract page text/links as explicitly marked untrusted data. Backed by a real Chromium instance, so this can log in, submit forms and click through flows on Peter's behalf.",
   category: "external",
   inputSchema: z
     .object({
       operation: z.string().max(40),
       sessionId: z.string().max(80).optional(),
       url: z.string().max(2048).optional(),
+      target: z.string().max(300).optional(),
+      value: z.string().max(2000).optional(),
     })
     .nullable(),
   outputSchema: z.unknown(),
@@ -187,6 +197,8 @@ lumoToolRegistry.register({
     if (!input) return { ok: false, needs: "operation and browser details" };
     if (input.operation === "create_session")
       return lumoBrowserWorkspace.createSession(context.ownerKey);
+    if (input.operation === "close_session" && input.sessionId)
+      return lumoBrowserWorkspace.closeSession(context.ownerKey, input.sessionId);
     if (input.operation === "open" && input.sessionId && input.url)
       return lumoBrowserWorkspace.open(
         context.ownerKey,
@@ -195,6 +207,18 @@ lumoToolRegistry.register({
       );
     if (input.operation === "snapshot" && input.sessionId)
       return lumoBrowserWorkspace.snapshot(context.ownerKey, input.sessionId);
+    if (
+      ["click", "type", "select", "scroll", "navigate", "extract"].includes(
+        input.operation
+      ) &&
+      input.sessionId
+    )
+      return lumoBrowserWorkspace.action(context.ownerKey, input.sessionId, {
+        id: nanoid(10),
+        type: input.operation as "click" | "type" | "select" | "scroll" | "navigate" | "extract",
+        target: input.target,
+        value: input.operation === "navigate" ? input.url : input.value,
+      });
     return {
       ok: false,
       needs: "supported browser operation and required fields",

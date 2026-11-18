@@ -9,6 +9,7 @@ import {
   browserActionSchema,
   browserUrlSchema,
   type BrowserAction,
+  type BrowserInteractionResult,
   type BrowserPage,
   type BrowserProvider,
   type BrowserResult,
@@ -81,11 +82,59 @@ export class BrowserWorkspace {
     this.pages.set(page.id, page);
     session.pages.push(page.id);
     session.activePageId = page.id;
-    const snapshot = await this.fetchPage(page);
+    const snapshot = this.provider.navigate
+      ? await this.navigateInteractive(page, safe)
+      : await this.fetchPage(page);
     page.title = snapshot.title;
     page.navigationState = "ready";
     this.snapshots.set(page.id, snapshot);
     return { page, snapshot };
+  }
+  /** Real, stateful navigation via an interactive provider (keeps the live page). */
+  private async navigateInteractive(
+    page: BrowserPage,
+    url: string
+  ): Promise<BrowserSnapshot> {
+    try {
+      const result = await this.provider.navigate!(page.id, url);
+      return this.toSnapshot(page, result);
+    } catch (error) {
+      page.navigationState = "error";
+      throw new Error(
+        error instanceof Error ? error.message : "Browser unavailable."
+      );
+    }
+  }
+  private toSnapshot(
+    page: BrowserPage,
+    result: BrowserInteractionResult
+  ): BrowserSnapshot {
+    const html = result.html;
+    const text = sanitizePublicText(strip(html)).slice(0, MAX_TEXT);
+    const links = [
+      ...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi),
+    ]
+      .slice(0, 50)
+      .map(match => {
+        try {
+          return {
+            text: strip(match[2]).slice(0, 200),
+            url: new URL(match[1], result.url).toString(),
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((link): link is { text: string; url: string } => Boolean(link));
+    return {
+      pageId: page.id,
+      url: result.url,
+      title: sanitizePublicText(result.title || result.url),
+      text,
+      links,
+      timestamp: Date.now(),
+      contentTrust: "untrusted_web_data",
+    };
   }
   private async fetchPage(page: BrowserPage): Promise<BrowserSnapshot> {
     try {
@@ -140,26 +189,107 @@ export class BrowserWorkspace {
   ): Promise<BrowserResult> {
     this.check(ownerKey);
     browserActionSchema.parse(action);
+    const session = this.session(sessionId);
+    if (session.ownerKey !== ownerKey)
+      throw new Error("Browser session ownership mismatch.");
     if (action.type === "navigate") {
       if (!action.value) throw new Error("Navigation URL is required.");
       const opened = await this.open(ownerKey, sessionId, action.value);
       return { success: true, actionId: action.id, data: opened.snapshot };
     }
-    if (["click", "select", "type"].includes(action.type))
-      return {
-        success: false,
-        actionId: action.id,
-        data: null,
-        error: {
-          code: "unsupported_operation",
-          message:
-            "Interactive side effects require a future controlled browser provider.",
-        },
-      };
+    const activePage = session.activePageId
+      ? this.pages.get(session.activePageId)
+      : undefined;
+    if (["click", "select", "type"].includes(action.type)) {
+      if (!activePage)
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: { code: "no_active_page", message: "No open page to act on — navigate first." },
+        };
+      const hasMethod =
+        action.type === "click"
+          ? Boolean(this.provider.click)
+          : action.type === "select"
+            ? Boolean(this.provider.select)
+            : Boolean(this.provider.type);
+      if (!hasMethod)
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: {
+            code: "unsupported_operation",
+            message:
+              "Interactive side effects require a real, interactive browser provider.",
+          },
+        };
+      if (!action.target)
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: { code: "invalid_action", message: "A target selector or label is required." },
+        };
+      try {
+        const result =
+          action.type === "click"
+            ? await this.provider.click!(activePage.id, action.target)
+            : action.type === "select"
+              ? await this.provider.select!(activePage.id, action.target, action.value ?? "")
+              : await this.provider.type!(activePage.id, action.target, action.value ?? "");
+        const snapshot = this.toSnapshot(activePage, result);
+        activePage.title = snapshot.title;
+        activePage.url = snapshot.url;
+        this.snapshots.set(activePage.id, snapshot);
+        return { success: true, actionId: action.id, data: snapshot };
+      } catch (error) {
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: {
+            code: "action_failed",
+            message: error instanceof Error ? error.message : "Action failed.",
+          },
+        };
+      }
+    }
+    if (action.type === "scroll" && activePage && this.provider.scroll) {
+      try {
+        const deltaY = Number(action.value) || 600;
+        const result = await this.provider.scroll(activePage.id, deltaY);
+        const snapshot = this.toSnapshot(activePage, result);
+        this.snapshots.set(activePage.id, snapshot);
+        return { success: true, actionId: action.id, data: snapshot };
+      } catch (error) {
+        return {
+          success: false,
+          actionId: action.id,
+          data: null,
+          error: {
+            code: "action_failed",
+            message: error instanceof Error ? error.message : "Scroll failed.",
+          },
+        };
+      }
+    }
     return {
       success: true,
       actionId: action.id,
       data: await this.snapshot(ownerKey, sessionId),
     };
+  }
+  /** Tears down any real, stateful pages (and underlying browser context) for a session. */
+  async closeSession(ownerKey: string, sessionId: string) {
+    this.check(ownerKey);
+    const session = this.session(sessionId);
+    if (session.ownerKey !== ownerKey)
+      throw new Error("Browser session ownership mismatch.");
+    if (this.provider.closePage)
+      for (const pageId of session.pages) await this.provider.closePage(pageId);
+    for (const pageId of session.pages) this.pages.delete(pageId);
+    this.sessions.delete(sessionId);
   }
 }

@@ -57,8 +57,30 @@ export type BrowserResult = {
   error?: { code: string; message: string };
 };
 export type BrowserProviderResponse = { status: number; body: string };
+export type BrowserInteractionResult = { url: string; title: string; html: string };
 export interface BrowserProvider {
   fetch(url: string): Promise<BrowserProviderResponse>;
+  /**
+   * Optional real-interactivity surface. A provider that implements these
+   * (e.g. a Playwright-backed one) keeps one live page per pageId across
+   * calls, so a click or typed value actually lands on the same session —
+   * this is what makes logging in on the person's behalf possible. A
+   * provider without these only supports navigate/extract via fetch().
+   */
+  navigate?(pageId: string, url: string): Promise<BrowserInteractionResult>;
+  click?(pageId: string, target: string): Promise<BrowserInteractionResult>;
+  type?(
+    pageId: string,
+    target: string,
+    value: string
+  ): Promise<BrowserInteractionResult>;
+  select?(
+    pageId: string,
+    target: string,
+    value: string
+  ): Promise<BrowserInteractionResult>;
+  scroll?(pageId: string, deltaY: number): Promise<BrowserInteractionResult>;
+  closePage?(pageId: string): Promise<void>;
 }
 export const browserUrlSchema = z
   .string()
