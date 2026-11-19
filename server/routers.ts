@@ -9,7 +9,7 @@ import { createLumoCore } from "./lumo/core";
 import { toPublicError } from "./lumo/errors";
 import { DEFAULT_PERSONALITY } from "./lumo/memory";
 import { lumoLogger } from "./lumo/logger";
-import { ManagedLumoProvider } from "./lumo/provider";
+import { AiProviderManager, aiProviderSettingsInputSchema } from "./lumo/ai-provider";
 import { buildWebSearchContext } from "./lumo/tools/web-search/context";
 import {
   webSearchInputSchema,
@@ -66,8 +66,12 @@ import {
 } from "./lumo/teaching/contracts";
 
 const lumoStorage = new DatabaseLumoStorage();
+// Picks managed vs Peter's own VPS live, per request, with automatic
+// fallback to managed if the VPS doesn't answer — his explicit "connect my
+// VPS, but never strand me if it drops" requirement.
+const lumoAiProvider = new AiProviderManager(lumoStorage, LUMO_OWNER_KEY);
 const lumoCore = createLumoCore({
-  provider: new ManagedLumoProvider(),
+  provider: lumoAiProvider,
   storage: lumoStorage,
   logger: lumoLogger,
   ownerKey: LUMO_OWNER_KEY,
@@ -146,23 +150,34 @@ const lumoRouter = router({
       }
     }),
 
-  diagnostics: publicProcedure.query(() => ({
-    ownerKey: LUMO_OWNER_KEY,
-    provider: "managed-platform-llm",
-    apiConfigured: Boolean(ENV.forgeApiUrl && ENV.forgeApiKey),
-    databaseConfigured: Boolean(ENV.databaseUrl),
-    model: ENV.lumoModel || "platform default",
-    maxTokens: ENV.lumoMaxTokens,
-    timeoutMs: ENV.lumoTimeoutMs,
-    futureCapabilities: [
-      "tools",
-      "files",
-      "web",
-      "vision",
-      "voice",
-      "blueprints",
-    ],
-  })),
+  diagnostics: publicProcedure.query(async () => {
+    const aiStatus = await lumoAiProvider.getStatus();
+    return {
+      ownerKey: LUMO_OWNER_KEY,
+      provider:
+        aiStatus.mode === "vps"
+          ? aiStatus.fallbackActive
+            ? "your-vps (fell back to managed)"
+            : "your-vps"
+          : "managed-platform-llm",
+      apiConfigured: Boolean(ENV.forgeApiUrl && ENV.forgeApiKey),
+      databaseConfigured: Boolean(ENV.databaseUrl),
+      model:
+        aiStatus.mode === "vps" && !aiStatus.fallbackActive
+          ? aiStatus.vps?.model || "your VPS model"
+          : ENV.lumoModel || "platform default",
+      maxTokens: ENV.lumoMaxTokens,
+      timeoutMs: ENV.lumoTimeoutMs,
+      futureCapabilities: [
+        "tools",
+        "files",
+        "web",
+        "vision",
+        "voice",
+        "blueprints",
+      ],
+    };
+  }),
 
   toolCatalog: publicProcedure.query(() => lumoToolSystem.listTools()),
 
@@ -718,6 +733,32 @@ const lumoRouter = router({
     }),
 
   recall: publicProcedure.query(() => lumoStorage.listMemories(LUMO_OWNER_KEY)),
+
+  getAiProviderStatus: publicProcedure.query(() => lumoAiProvider.getStatus()),
+
+  setAiProviderSettings: publicProcedure
+    .input(aiProviderSettingsInputSchema)
+    .mutation(async ({ input }) => {
+      try {
+        return await lumoAiProvider.setConfig(input);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "Could not save AI provider settings.",
+        });
+      }
+    }),
+
+  testAiProviderConnection: publicProcedure.mutation(async () => {
+    try {
+      return await lumoAiProvider.testConnection();
+    } catch (error) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: error instanceof Error ? error.message : "Could not test the VPS connection.",
+      });
+    }
+  }),
 });
 
 export const appRouter = router({

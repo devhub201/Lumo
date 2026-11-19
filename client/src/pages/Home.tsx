@@ -134,6 +134,21 @@ export default function Home() {
   const sendMutation = trpc.lumo.send.useMutation();
   const runVisionMutation = trpc.lumo.runVision.useMutation();
 
+  // AI provider (managed vs Peter's own VPS, with automatic fallback)
+  const [providerOpen, setProviderOpen] = useState(false);
+  const [vpsUrlDraft, setVpsUrlDraft] = useState("");
+  const [vpsKeyDraft, setVpsKeyDraft] = useState("");
+  const [vpsModelDraft, setVpsModelDraft] = useState("");
+  const [providerNote, setProviderNote] = useState<string | null>(null);
+  const providerStatusQuery = trpc.lumo.getAiProviderStatus.useQuery();
+  const setProviderMutation = trpc.lumo.setAiProviderSettings.useMutation({
+    onSuccess: () => {
+      void providerStatusQuery.refetch();
+      void diagnosticsQuery.refetch();
+    },
+  });
+  const testProviderMutation = trpc.lumo.testAiProviderConnection.useMutation();
+
   const sortedMemories = useMemo(
     () => (memoriesQuery.data ?? []).slice(0, 4),
     [memoriesQuery.data]
@@ -386,6 +401,67 @@ export default function Home() {
     saveSecureVault(next);
   };
 
+  const useManagedProvider = () => {
+    setProviderNote(null);
+    setProviderMutation.mutate(
+      { mode: "managed" },
+      {
+        onError: error => setProviderNote(error.message),
+        onSuccess: () => setProviderNote("Switched back to the managed backend."),
+      }
+    );
+  };
+
+  const connectVps = () => {
+    const baseUrl = vpsUrlDraft.trim();
+    if (!baseUrl) {
+      setProviderNote("Enter your VPS address first.");
+      return;
+    }
+    setProviderNote(null);
+    setProviderMutation.mutate(
+      {
+        mode: "vps",
+        vps: {
+          baseUrl,
+          apiKey: vpsKeyDraft.trim() || undefined,
+          model: vpsModelDraft.trim() || undefined,
+        },
+      },
+      {
+        onError: error => setProviderNote(error.message),
+        onSuccess: () => {
+          setVpsKeyDraft("");
+          setProviderNote("Saved. Testing connection…");
+          testProviderMutation.mutate(undefined, {
+            onSuccess: result =>
+              setProviderNote(
+                result.ok
+                  ? `Connected (${result.latencyMs}ms). Lumo will use your VPS, with automatic fallback to managed if it drops.`
+                  : `Saved, but couldn't reach it yet: ${result.error ?? "unreachable"}. Lumo will fall back to managed until it's up.`
+              ),
+            onError: error => setProviderNote(`Saved, but the test failed: ${error.message}`),
+          });
+        },
+      }
+    );
+  };
+
+  const retestVps = () => {
+    setProviderNote("Testing connection…");
+    testProviderMutation.mutate(undefined, {
+      onSuccess: result => {
+        void providerStatusQuery.refetch();
+        setProviderNote(
+          result.ok
+            ? `Connected (${result.latencyMs}ms).`
+            : `Unreachable: ${result.error ?? "unknown error"}.`
+        );
+      },
+      onError: error => setProviderNote(error.message),
+    });
+  };
+
   const authenticateSensitiveAction = async () => {
     setSecurityStatus("waiting for device biometric prompt");
     const result = await verifyBiometric();
@@ -531,10 +607,113 @@ export default function Home() {
           </div>
           <div className="lv-mode-row">
             Provider{" "}
-            <b style={{ color: "#e6e6ea", fontWeight: 600 }}>
+            <b
+              style={{
+                color: providerStatusQuery.data?.fallbackActive ? "#fbbf24" : "#e6e6ea",
+                fontWeight: 600,
+              }}
+            >
               {diagnosticsQuery.data?.provider ?? "—"}
             </b>
           </div>
+          <button
+            type="button"
+            className="lv-provider-manage"
+            onClick={() => setProviderOpen(v => !v)}
+          >
+            <Activity /> {providerOpen ? "Hide AI provider" : "Manage AI provider"}
+          </button>
+          {providerOpen && (
+            <div className="lv-provider-panel">
+              <div className="lv-prov-opt-row">
+                <button
+                  type="button"
+                  className={`lv-prov-opt ${providerStatusQuery.data?.mode === "managed" ? "lv-prov-active" : ""}`}
+                  onClick={useManagedProvider}
+                  disabled={setProviderMutation.isPending}
+                >
+                  Managed
+                </button>
+                <button
+                  type="button"
+                  className={`lv-prov-opt ${providerStatusQuery.data?.mode === "vps" ? "lv-prov-active" : ""}`}
+                  onClick={() => setProviderOpen(true)}
+                >
+                  Your VPS
+                </button>
+              </div>
+              {providerStatusQuery.data?.vps && (
+                <div className="lv-prov-status">
+                  {providerStatusQuery.data.vps.baseUrl}
+                  {providerStatusQuery.data.vps.model
+                    ? ` · ${providerStatusQuery.data.vps.model}`
+                    : ""}
+                  <br />
+                  <span
+                    style={{
+                      color: providerStatusQuery.data.vps.connected ? "#4ade80" : "#f87171",
+                    }}
+                  >
+                    {providerStatusQuery.data.vps.connected
+                      ? "● reachable"
+                      : `● unreachable${
+                          providerStatusQuery.data.vps.lastError
+                            ? ` — ${providerStatusQuery.data.vps.lastError}`
+                            : ""
+                        }`}
+                  </span>
+                </div>
+              )}
+              <input
+                className="lv-prov-input"
+                placeholder="http://your-vps-ip:port/v1"
+                value={vpsUrlDraft}
+                onChange={event => setVpsUrlDraft(event.target.value)}
+              />
+              <input
+                className="lv-prov-input"
+                placeholder="API key (optional)"
+                type="password"
+                value={vpsKeyDraft}
+                onChange={event => setVpsKeyDraft(event.target.value)}
+              />
+              <input
+                className="lv-prov-input"
+                placeholder="Model name (optional)"
+                value={vpsModelDraft}
+                onChange={event => setVpsModelDraft(event.target.value)}
+              />
+              <div className="lv-prov-actions">
+                <button
+                  type="button"
+                  className="lv-vbtn"
+                  onClick={connectVps}
+                  disabled={setProviderMutation.isPending}
+                >
+                  {setProviderMutation.isPending ? <Loader2 className="spin" /> : null}
+                  Connect VPS
+                </button>
+                {providerStatusQuery.data?.vps && (
+                  <button
+                    type="button"
+                    className="lv-vbtn"
+                    onClick={retestVps}
+                    disabled={testProviderMutation.isPending}
+                  >
+                    {testProviderMutation.isPending ? <Loader2 className="spin" /> : null}
+                    Re-test
+                  </button>
+                )}
+              </div>
+              <div className="lv-prov-note">
+                Auto-fallback to Managed is ON if this VPS drops. Your
+                conversations and memory always stay in Lumo's own app
+                storage, never on the VPS, regardless of which provider
+                answers.
+              </div>
+              {providerNote && <div className="lv-prov-feedback">{providerNote}</div>}
+            </div>
+          )}
         </div>
         <div className="lv-card lv-secure-card">
           <div className="lv-secure-title">
