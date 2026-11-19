@@ -149,6 +149,14 @@ export default function Home() {
   });
   const testProviderMutation = trpc.lumo.testAiProviderConnection.useMutation();
 
+  // live permission toggles — flip one and the matching tools are genuinely
+  // blocked/allowed on the very next call, no restart needed
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const permissionsQuery = trpc.lumo.listPermissions.useQuery();
+  const setPermissionMutation = trpc.lumo.setPermission.useMutation({
+    onSuccess: () => void permissionsQuery.refetch(),
+  });
+
   const sortedMemories = useMemo(
     () => (memoriesQuery.data ?? []).slice(0, 4),
     [memoriesQuery.data]
@@ -712,6 +720,44 @@ export default function Home() {
                 answers.
               </div>
               {providerNote && <div className="lv-prov-feedback">{providerNote}</div>}
+            </div>
+          )}
+        </div>
+        <div className="lv-card">
+          <h4>Permissions</h4>
+          <button
+            type="button"
+            className="lv-provider-manage"
+            onClick={() => setPermissionsOpen(v => !v)}
+          >
+            <ShieldCheck /> {permissionsOpen ? "Hide permissions" : "Manage permissions"}
+          </button>
+          {permissionsOpen && (
+            <div className="lv-provider-panel">
+              {permissionsQuery.data?.map(permission => (
+                <div className="lv-mode-row" key={permission.tag}>
+                  <span title={permission.description}>{permission.label}</span>
+                  <button
+                    type="button"
+                    className={`lv-sw ${permission.granted ? "lv-on" : ""}`}
+                    disabled={setPermissionMutation.isPending}
+                    onClick={() =>
+                      setPermissionMutation.mutate({
+                        tag: permission.tag,
+                        granted: !permission.granted,
+                      })
+                    }
+                  >
+                    <i />
+                    <b />
+                  </button>
+                </div>
+              ))}
+              <div className="lv-prov-note">
+                Turning one off blocks the matching tools immediately — not
+                just in this screen, for real, on the next request Lumo
+                makes.
+              </div>
             </div>
           )}
         </div>

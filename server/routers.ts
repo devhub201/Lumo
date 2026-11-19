@@ -37,7 +37,10 @@ import {
   lumoGithub,
   lumoGmail,
   lumoPerformance,
+  lumoPermissionManager,
 } from "./lumo/tools/system";
+import { capabilityForToolPermission } from "./lumo/security/permissions";
+import { TOGGLEABLE_TOOL_PERMISSIONS } from "./lumo/security/tool-permissions";
 import { agentPlanSchema } from "./lumo/workflows";
 import { runtimeCommandSchema } from "./lumo/runtime";
 import { browserActionSchema, browserUrlSchema } from "./lumo/browser";
@@ -70,6 +73,28 @@ const lumoStorage = new DatabaseLumoStorage();
 // fallback to managed if the VPS doesn't answer — his explicit "connect my
 // VPS, but never strand me if it drops" requirement.
 const lumoAiProvider = new AiProviderManager(lumoStorage, LUMO_OWNER_KEY);
+
+const PERMISSION_OVERRIDES_KEY = "permission_overrides";
+// Restore any permission toggles Peter flipped in a previous session —
+// ManagedToolPermissions only grants its fixed defaults at construction,
+// so without this, a toggle he turned off would quietly come back on
+// after every server restart.
+void (async () => {
+  try {
+    const raw = await lumoStorage.getSetting(LUMO_OWNER_KEY, PERMISSION_OVERRIDES_KEY);
+    if (!raw) return;
+    const overrides = JSON.parse(raw) as Record<string, "granted" | "denied">;
+    for (const [tag, state] of Object.entries(overrides)) {
+      const capability = capabilityForToolPermission(tag);
+      if (state === "denied")
+        lumoPermissionManager.deny(LUMO_OWNER_KEY, capability, "Restored from saved settings", "*", "user");
+      else
+        lumoPermissionManager.grant(LUMO_OWNER_KEY, capability, "Restored from saved settings", "*", "user");
+    }
+  } catch {
+    // Best-effort restore — the ManagedToolPermissions defaults still stand if this fails.
+  }
+})();
 const lumoCore = createLumoCore({
   provider: lumoAiProvider,
   storage: lumoStorage,
@@ -759,6 +784,48 @@ const lumoRouter = router({
       });
     }
   }),
+
+  listPermissions: publicProcedure.query(() =>
+    TOGGLEABLE_TOOL_PERMISSIONS.map(item => {
+      const decision = lumoPermissionManager.evaluate(
+        LUMO_OWNER_KEY,
+        capabilityForToolPermission(item.tag)
+      );
+      return {
+        tag: item.tag,
+        label: item.label,
+        description: item.description,
+        granted: decision.allowed,
+        reason: decision.reason,
+        updatedAt: decision.record?.updatedAt ?? null,
+      };
+    })
+  ),
+
+  setPermission: publicProcedure
+    .input(
+      z.object({
+        tag: z.enum(
+          TOGGLEABLE_TOOL_PERMISSIONS.map(item => item.tag) as [string, ...string[]]
+        ),
+        granted: z.boolean(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const capability = capabilityForToolPermission(input.tag);
+      if (input.granted)
+        lumoPermissionManager.grant(LUMO_OWNER_KEY, capability, "Toggled on in Settings", "*", "user");
+      else
+        lumoPermissionManager.deny(LUMO_OWNER_KEY, capability, "Toggled off in Settings", "*", "user");
+
+      const raw = await lumoStorage.getSetting(LUMO_OWNER_KEY, PERMISSION_OVERRIDES_KEY).catch(() => null);
+      const overrides: Record<string, "granted" | "denied"> = raw ? JSON.parse(raw) : {};
+      overrides[input.tag] = input.granted ? "granted" : "denied";
+      await lumoStorage.setSetting(LUMO_OWNER_KEY, PERMISSION_OVERRIDES_KEY, JSON.stringify(overrides));
+
+      const decision = lumoPermissionManager.evaluate(LUMO_OWNER_KEY, capability);
+      return { tag: input.tag, granted: decision.allowed };
+    }),
 });
 
 export const appRouter = router({
