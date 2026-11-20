@@ -59,11 +59,29 @@ describe("browser workspace", () => {
       browser.open("peter", session.id, "https://example.com")
     ).rejects.toThrow("web permission");
   });
-  it("does not execute webpage side effects by default", async () => {
+  it("rejects an interactive action with no page open yet", async () => {
     const permissions = new PermissionManager();
     permissions.grant("peter", "web_access");
     const browser = new BrowserWorkspace(permissions);
     const session = browser.createSession("peter");
+    const result = await browser.action("peter", session.id, {
+      id: "a",
+      type: "click",
+      target: "submit",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("no_active_page");
+  });
+  it("does not execute webpage side effects with a non-interactive provider", async () => {
+    const permissions = new PermissionManager();
+    permissions.grant("peter", "web_access");
+    // This provider only implements fetch() — no navigate/click/type/select —
+    // the shape a plain, non-interactive BrowserProvider has.
+    const browser = new BrowserWorkspace(permissions, {
+      fetch: async () => ({ status: 200, body: "<title>Form</title><button>Submit</button>" }),
+    });
+    const session = browser.createSession("peter");
+    await browser.open("peter", session.id, "https://example.com");
     const result = await browser.action("peter", session.id, {
       id: "a",
       type: "click",
