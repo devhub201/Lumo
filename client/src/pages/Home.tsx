@@ -41,6 +41,7 @@ import {
 import {
   getBiometricAvailability,
   verifyBiometric,
+  verifyDeviceCredential,
   type BiometricAvailability,
 } from "@/lib/biometric";
 import { Capacitor } from "@capacitor/core";
@@ -500,6 +501,20 @@ export default function Home() {
     setAuthMessage(result.reason);
   };
 
+  const authenticateWithRecovery = async () => {
+    setAuthState("checking");
+    setAuthMessage("Waiting for your device PIN, pattern, or password…");
+    const result = await verifyDeviceCredential();
+    if (result.verified) {
+      setAuthMessage("Identity verified for this session.");
+      setAuthState("success");
+      window.setTimeout(() => setAuthState("authenticated"), 750);
+      return;
+    }
+    setAuthState("recovery");
+    setAuthMessage(result.reason);
+  };
+
   if (nativePlatform && authState !== "authenticated") {
     return (
       <AuthenticationScreen
@@ -507,12 +522,7 @@ export default function Home() {
         availability={biometricAvailability}
         message={authMessage}
         onAuthenticate={() => void authenticateEntry()}
-        onRecovery={() => {
-          setAuthState("recovery");
-          setAuthMessage(
-            "Recovery is not configured for this installation. No password, PIN, or recovery code is accepted."
-          );
-        }}
+        onRecovery={() => void authenticateWithRecovery()}
       />
     );
   }
