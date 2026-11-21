@@ -1462,8 +1462,9 @@ body {
 /* LUMO authentication screen: one responsive layout, no overlapping panels. */
 .auth-screen {
   min-height: 100dvh;
-  height: 100dvh;
-  overflow: hidden;
+  height: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   color: #dceeff;
   background:
     radial-gradient(
@@ -1575,27 +1576,32 @@ body {
   background: #50e2ae;
   box-shadow: 0 0 9px #50e2ae;
 }
+/*
+ * Always a single vertical column, on every screen size and orientation.
+ * The old layout used a 3-column CSS grid that only made sense on a wide
+ * desktop viewport, with device-specific landscape/portrait overrides
+ * trying to patch it back into a stack. On a real phone the card's real
+ * content height didn't match the grid row the breakpoints assumed, so the
+ * security panel visually overlapped the lock/button card instead of
+ * sitting below it. A single flex column can't overlap like that — if
+ * content is taller than the screen, the screen scrolls instead.
+ */
 .auth-layout {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(220px, 0.82fr) minmax(360px, 1.12fr) minmax(
-      220px,
-      0.8fr
-    );
-  gap: clamp(14px, 2vw, 28px);
-  align-items: center;
-  width: min(1400px, calc(100% - 56px));
-  height: calc(100% - 66px - env(safe-area-inset-top));
-  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  width: min(480px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 18px 0;
+  padding: 20px 0 32px;
   box-sizing: border-box;
 }
 .auth-identity-panel {
+  order: 1;
   min-width: 0;
-  align-self: center;
-  padding: 12px 8px;
+  padding: 4px 8px 0;
   text-align: center;
 }
 .auth-energy-orb {
@@ -1758,14 +1764,14 @@ body {
     inset 0 1px 0 rgba(166, 218, 255, 0.07);
 }
 .auth-card {
-  align-self: center;
-  max-height: 100%;
-  overflow-y: auto;
-  padding: clamp(22px, 4vh, 36px) clamp(22px, 3vw, 42px);
+  order: 2;
+  width: 100%;
+  padding: clamp(22px, 4vh, 36px) clamp(22px, 6vw, 42px);
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
+  box-sizing: border-box;
 }
 .auth-eyebrow {
   margin: 0 0 16px;
@@ -1892,10 +1898,10 @@ body {
   line-height: 1.45;
 }
 .auth-security-panel {
-  align-self: center;
-  max-height: 100%;
-  overflow-y: auto;
-  padding: 22px 20px;
+  order: 3;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 20px;
 }
 .auth-panel-title {
   display: flex;
@@ -2024,174 +2030,39 @@ body {
     transform: translateX(100%);
   }
 }
-@media (orientation: landscape) and (max-width: 1100px) {
+/*
+ * The layout is already a single flex column by default (see .auth-layout
+ * above), so it never needs per-orientation grid rebuilding. These are just
+ * small space-savers for short/narrow screens — nothing here can overlap,
+ * since everything still stacks in source order.
+ */
+@media (max-width: 480px) {
   .auth-topbar {
-    height: calc(54px + env(safe-area-inset-top));
-    padding-left: max(12px, env(safe-area-inset-left));
-    padding-right: max(12px, env(safe-area-inset-right));
-  }
-  .auth-brand > span:last-child,
-  .auth-topbar-status {
-    display: none;
-  }
-  .auth-layout {
-    grid-template-columns: minmax(130px, 0.52fr) minmax(300px, 1.48fr);
-    grid-template-rows: minmax(0, 1fr) auto;
-    gap: 10px;
-    width: calc(100% - 24px);
-    height: calc(100% - 54px - env(safe-area-inset-top));
-    max-height: none;
-    padding: 10px 0;
-    overflow-y: auto;
-    align-content: center;
-  }
-  .auth-identity-panel {
-    grid-column: 1;
-    grid-row: 1;
-    padding: 4px;
-  }
-  .auth-card {
-    grid-column: 2;
-    grid-row: 1;
-    max-height: none;
-    padding: 16px 22px;
-  }
-  .auth-security-panel {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    display: grid;
-    grid-template-columns: auto minmax(150px, 1.5fr) minmax(120px, 1fr) minmax(
-        120px,
-        1fr
-      );
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    max-height: none;
-    padding: 10px 14px;
-    overflow: visible;
-  }
-  .auth-panel-title {
-    padding: 0;
-    border: 0;
-  }
-  .auth-status-card {
-    margin: 0;
-    padding: 8px;
-  }
-  .auth-fact {
-    padding: 0;
-    border: 0;
-  }
-  .auth-quote {
-    display: none;
-  }
-  .auth-energy-orb {
-    width: 120px;
-    margin-bottom: 10px;
-  }
-  .auth-wordmark {
-    font-size: 26px;
-  }
-  .auth-tagline,
-  .auth-supporting,
-  .auth-shortcuts {
-    display: none;
-  }
-}
-@media (orientation: landscape) and (max-width: 700px) {
-  .auth-layout {
-    grid-template-columns: 105px minmax(270px, 1fr);
-    width: calc(100% - 14px);
-    gap: 8px;
-  }
-  .auth-energy-orb {
-    width: 92px;
-  }
-  .auth-wordmark {
-    font-size: 20px;
-  }
-  .auth-card {
-    padding: 12px 15px;
-  }
-  .auth-biometric-visual {
-    width: 88px;
-    height: 88px;
-    margin-bottom: 12px;
-  }
-  .auth-primary-button,
-  .auth-recovery-button {
-    min-height: 40px;
-    font-size: 9px;
-  }
-  .auth-security-panel {
-    grid-template-columns: auto minmax(110px, 1.4fr) minmax(90px, 1fr) minmax(
-        90px,
-        1fr
-      );
-    gap: 7px;
-    font-size: 9px;
-  }
-  .auth-status-card strong,
-  .auth-status-card small,
-  .auth-fact span,
-  .auth-fact strong {
-    font-size: 8px;
-  }
-}
-@media (orientation: portrait) {
-  .auth-screen {
-    height: auto;
-    min-height: 100dvh;
-    overflow: visible;
-  }
-  .auth-topbar {
-    height: calc(60px + env(safe-area-inset-top));
+    height: calc(56px + env(safe-area-inset-top));
     padding-left: 16px;
     padding-right: 16px;
   }
+  .auth-brand > span:last-child,
   .auth-topbar-status {
     display: none;
   }
-  .auth-brand > span:last-child,
-  .auth-brand i {
-    display: none;
-  }
-  .auth-layout {
-    display: flex;
-    flex-direction: column;
-    width: min(520px, calc(100% - 24px));
-    height: auto;
-    min-height: calc(100dvh - 60px);
-    padding: 20px 0 30px;
-    gap: 16px;
-    overflow: visible;
-  }
-  .auth-identity-panel {
-    order: 1;
-    padding: 0;
-  }
-  .auth-card {
-    order: 2;
-    width: 100%;
-    max-height: none;
-    padding: 26px 20px;
-  }
-  .auth-security-panel {
-    order: 3;
-    width: 100%;
-    max-height: none;
-    overflow: visible;
-  }
   .auth-energy-orb {
-    width: 140px;
-    margin-bottom: 12px;
+    width: 130px;
+    margin-bottom: 10px;
+  }
+  .auth-wordmark {
+    font-size: 30px;
   }
   .auth-supporting {
     display: none;
   }
-  .auth-shortcuts {
-    margin-top: 12px;
+}
+@media (max-height: 640px) {
+  .auth-identity-panel {
+    display: none;
+  }
+  .auth-screen::before {
+    display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
