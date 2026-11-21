@@ -387,6 +387,66 @@ const lumoRouter = router({
     .query(({ input }) =>
       lumoCodeWorkspace.snapshot(LUMO_OWNER_KEY, input.projectId)
     ),
+  codeListDirectory: publicProcedure
+    .input(
+      z.object({ projectId: z.string().max(80), dir: z.string().max(300).optional() })
+    )
+    .query(({ input }) =>
+      lumoCodeWorkspace.listDirectory(LUMO_OWNER_KEY, input.projectId, input.dir)
+    ),
+  codeWriteFile: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().max(80),
+        path: relativePathSchema,
+        content: codeContentSchema,
+        kind: z.enum(["create", "edit"]).default("create"),
+      })
+    )
+    .mutation(({ input }) =>
+      lumoCodeWorkspace.writeFile(
+        LUMO_OWNER_KEY,
+        input.projectId,
+        input.path,
+        input.content,
+        input.kind
+      )
+    ),
+  codeMakeDirectory: publicProcedure
+    .input(z.object({ projectId: z.string().max(80), dir: relativePathSchema }))
+    .mutation(({ input }) =>
+      lumoCodeWorkspace.makeDirectory(LUMO_OWNER_KEY, input.projectId, input.dir)
+    ),
+  codeDeleteFile: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().max(80),
+        path: relativePathSchema,
+        authorization: z
+          .object({
+            authorized: z.boolean(),
+            action: z.string().max(80),
+            reason: z.string().max(300),
+            issuedAt: z.number(),
+          })
+          .optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        return await lumoCodeWorkspace.deleteFile(
+          LUMO_OWNER_KEY,
+          input.projectId,
+          input.path,
+          input.authorization
+        );
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "Could not delete the file.",
+        });
+      }
+    }),
   codeRunTask: publicProcedure
     .input(
       z.object({

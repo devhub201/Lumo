@@ -118,7 +118,19 @@ export class CodeWorkspaceManager {
     const entries = await readdir(target, { withFileTypes: true });
     return {
       path: dir,
-      entries: entries.filter(e => e.name !== ".project.json").map(e => e.name),
+      // Real file/folder distinction — a browser UI can't tell them apart
+      // from bare names alone, and misclassifying a folder as a file
+      // (or vice versa) makes "open" silently do the wrong thing.
+      entries: entries
+        .filter(e => e.name !== ".project.json")
+        .map(e => ({ name: e.name, isDirectory: e.isDirectory() }))
+        .sort((a, b) =>
+          a.isDirectory === b.isDirectory
+            ? a.name.localeCompare(b.name)
+            : a.isDirectory
+              ? -1
+              : 1
+        ),
     };
   }
   async readFile(owner: string, id: string, file: string) {

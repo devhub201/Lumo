@@ -15,6 +15,13 @@ import {
   ShieldCheck,
   Sparkles,
   Activity,
+  FolderOpen,
+  File,
+  Folder,
+  Plus,
+  Save,
+  Trash2,
+  ArrowLeft,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LumoOrb, type LumoOrbState } from "@/components/LumoOrb";
@@ -73,6 +80,7 @@ export default function Home() {
 
   // conversation / voice turn state
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<"home" | "files">("home");
   const [pendingText, setPendingText] = useState<string | null>(null);
   const [failedText, setFailedText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -566,10 +574,21 @@ export default function Home() {
       </div>
 
       <div className="lv-tabs">
-        <button type="button" className="lv-tab lv-on">
+        <button
+          type="button"
+          className={`lv-tab ${view === "home" ? "lv-on" : ""}`}
+          onClick={() => setView("home")}
+        >
           <CircleDot /> Home
         </button>
-        {["Study", "Coding", "Browser", "Files", "Vision", "Blueprint", "Settings"].map(
+        <button
+          type="button"
+          className={`lv-tab ${view === "files" ? "lv-on" : ""}`}
+          onClick={() => setView("files")}
+        >
+          <FolderOpen /> Files
+        </button>
+        {["Study", "Coding", "Browser", "Vision", "Blueprint", "Settings"].map(
           label => (
             <button type="button" className="lv-tab" key={label} disabled>
               {label}
@@ -579,6 +598,10 @@ export default function Home() {
         )}
       </div>
 
+      {view === "files" && <FilesView />}
+
+      {view === "home" && (
+      <>
       <div className="lv-rail lv-left">
         <div className="lv-card">
           <h4>Voice settings</h4>
@@ -980,6 +1003,268 @@ export default function Home() {
           <b>{sessionLabel}</b>
           <div className="lv-s">time active</div>
         </div>
+      </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+type DirEntry = { name: string; isDirectory: boolean };
+
+/**
+ * Real, working file browser — backed by CodeWorkspaceManager (same
+ * sandboxed, path-traversal-safe storage the terminal and coding tools
+ * already use). Browse projects, navigate folders, open/edit/save files,
+ * create new files/folders, delete with a biometric gate.
+ */
+function FilesView() {
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [dir, setDir] = useState(".");
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [editorContent, setEditorContent] = useState("");
+  const [editorDirty, setEditorDirty] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newEntryName, setNewEntryName] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+
+  const utils = trpc.useUtils();
+  const projectsQuery = trpc.lumo.codeListProjects.useQuery();
+  const dirQuery = trpc.lumo.codeListDirectory.useQuery(
+    { projectId: projectId ?? "", dir },
+    { enabled: Boolean(projectId) }
+  );
+  const fileQuery = trpc.lumo.codeReadFile.useQuery(
+    { projectId: projectId ?? "", path: openPath ?? "" },
+    { enabled: Boolean(projectId && openPath) }
+  );
+
+  useEffect(() => {
+    if (fileQuery.data) {
+      setEditorContent(fileQuery.data.content);
+      setEditorDirty(false);
+    }
+  }, [fileQuery.data]);
+
+  const createProjectMutation = trpc.lumo.codeCreateProject.useMutation({
+    onSuccess: project => {
+      void utils.lumo.codeListProjects.invalidate();
+      setProjectId(project.id);
+      setDir(".");
+      setNewProjectName("");
+    },
+    onError: error => setNote(error.message),
+  });
+  const writeFileMutation = trpc.lumo.codeWriteFile.useMutation({
+    onSuccess: () => {
+      void utils.lumo.codeListDirectory.invalidate();
+      void utils.lumo.codeReadFile.invalidate();
+      setEditorDirty(false);
+      setNote("Saved.");
+    },
+    onError: error => setNote(error.message),
+  });
+  const makeDirectoryMutation = trpc.lumo.codeMakeDirectory.useMutation({
+    onSuccess: () => {
+      void utils.lumo.codeListDirectory.invalidate();
+      setNewEntryName("");
+    },
+    onError: error => setNote(error.message),
+  });
+  const deleteFileMutation = trpc.lumo.codeDeleteFile.useMutation({
+    onSuccess: (_result, variables) => {
+      void utils.lumo.codeListDirectory.invalidate();
+      if (openPath === variables.path) setOpenPath(null);
+      setNote("Deleted.");
+    },
+    onError: error => setNote(error.message),
+  });
+
+  const joinPath = (base: string, name: string) =>
+    base === "." ? name : `${base}/${name}`;
+  const parentOf = (path: string) => {
+    const parts = path.split("/");
+    parts.pop();
+    return parts.length ? parts.join("/") : ".";
+  };
+
+  const openEntry = (entry: DirEntry) => {
+    setNote(null);
+    if (entry.isDirectory) {
+      setDir(joinPath(dir, entry.name));
+      setOpenPath(null);
+    } else {
+      setOpenPath(joinPath(dir, entry.name));
+    }
+  };
+
+  const saveFile = () => {
+    if (!projectId || !openPath) return;
+    writeFileMutation.mutate({
+      projectId,
+      path: openPath,
+      content: editorContent,
+      kind: "edit",
+    });
+  };
+
+  const createFile = () => {
+    if (!projectId || !newEntryName.trim()) return;
+    const path = joinPath(dir, newEntryName.trim());
+    writeFileMutation.mutate(
+      { projectId, path, content: "", kind: "create" },
+      { onSuccess: () => { setOpenPath(path); setNewEntryName(""); } }
+    );
+  };
+
+  const createFolder = () => {
+    if (!projectId || !newEntryName.trim()) return;
+    makeDirectoryMutation.mutate({ projectId, dir: joinPath(dir, newEntryName.trim()) });
+  };
+
+  const deleteEntry = async (entry: DirEntry) => {
+    if (!projectId || entry.isDirectory) return;
+    setNote("Confirm with biometrics to delete…");
+    const result = await verifyBiometric();
+    if (!result.verified) {
+      setNote(result.reason || "Biometric confirmation failed — delete cancelled.");
+      return;
+    }
+    deleteFileMutation.mutate({
+      projectId,
+      path: joinPath(dir, entry.name),
+      authorization: {
+        authorized: true,
+        action: "delete_workspace_file",
+        reason: "Confirmed via device biometrics in the Files tab",
+        issuedAt: Date.now(),
+      },
+    });
+  };
+
+  return (
+    <div className="lv-files">
+      <div className="lv-files-side">
+        <div className="lv-card">
+          <h4>Projects</h4>
+          {projectsQuery.data?.length === 0 && (
+            <p style={{ fontSize: 12, color: "var(--lv-mut)" }}>
+              No projects yet — create one below.
+            </p>
+          )}
+          {projectsQuery.data?.map(project => (
+            <button
+              type="button"
+              key={project.id}
+              className={`lv-file-project ${projectId === project.id ? "lv-on" : ""}`}
+              onClick={() => {
+                setProjectId(project.id);
+                setDir(".");
+                setOpenPath(null);
+                setNote(null);
+              }}
+            >
+              <FolderOpen /> {project.name}
+            </button>
+          ))}
+          <div className="lv-files-new-row">
+            <input
+              className="lv-prov-input"
+              placeholder="New project name"
+              value={newProjectName}
+              onChange={event => setNewProjectName(event.target.value)}
+            />
+            <button
+              type="button"
+              className="lv-vbtn"
+              disabled={!newProjectName.trim() || createProjectMutation.isPending}
+              onClick={() => createProjectMutation.mutate({ name: newProjectName.trim() })}
+            >
+              {createProjectMutation.isPending ? <Loader2 className="spin" /> : <Plus />}
+              Create
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="lv-files-main">
+        {!projectId && (
+          <div className="lv-card">
+            <p style={{ color: "var(--lv-mut)" }}>Pick a project on the left, or create one.</p>
+          </div>
+        )}
+        {projectId && (
+          <div className="lv-card">
+            <div className="lv-files-breadcrumb">
+              {dir !== "." && (
+                <button type="button" className="lv-vbtn" onClick={() => { setDir(parentOf(dir)); setOpenPath(null); }}>
+                  <ArrowLeft /> Up
+                </button>
+              )}
+              <span>{dir === "." ? "/" : `/${dir}`}</span>
+            </div>
+            <div className="lv-files-list">
+              {dirQuery.data?.entries.map((entry: DirEntry) => (
+                <div className="lv-file-row" key={entry.name}>
+                  <button type="button" className="lv-file-entry" onClick={() => openEntry(entry)}>
+                    {entry.isDirectory ? <Folder /> : <File />}
+                    {entry.name}
+                  </button>
+                  {!entry.isDirectory && (
+                    <button
+                      type="button"
+                      className="lv-file-delete"
+                      disabled={deleteFileMutation.isPending}
+                      onClick={() => void deleteEntry(entry)}
+                    >
+                      <Trash2 />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {dirQuery.data?.entries.length === 0 && (
+                <p style={{ fontSize: 12, color: "var(--lv-mut)" }}>Empty folder.</p>
+              )}
+            </div>
+            <div className="lv-files-new-row">
+              <input
+                className="lv-prov-input"
+                placeholder="new-file.ts or new-folder"
+                value={newEntryName}
+                onChange={event => setNewEntryName(event.target.value)}
+              />
+              <button type="button" className="lv-vbtn" onClick={createFile} disabled={!newEntryName.trim()}>
+                <Plus /> File
+              </button>
+              <button type="button" className="lv-vbtn" onClick={createFolder} disabled={!newEntryName.trim()}>
+                <Plus /> Folder
+              </button>
+            </div>
+          </div>
+        )}
+
+        {openPath && (
+          <div className="lv-card lv-files-editor">
+            <div className="lv-files-breadcrumb">
+              <span>{openPath}</span>
+              <button type="button" className="lv-vbtn" onClick={saveFile} disabled={!editorDirty || writeFileMutation.isPending}>
+                {writeFileMutation.isPending ? <Loader2 className="spin" /> : <Save />}
+                Save
+              </button>
+            </div>
+            <textarea
+              className="lv-files-textarea"
+              value={editorContent}
+              onChange={event => {
+                setEditorContent(event.target.value);
+                setEditorDirty(true);
+              }}
+              spellCheck={false}
+            />
+          </div>
+        )}
+
+        {note && <div className="lv-prov-feedback">{note}</div>}
       </div>
     </div>
   );
