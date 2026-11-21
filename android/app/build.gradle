@@ -7,8 +7,13 @@ android {
         applicationId "com.devhub201.lumo"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // CI passes -PlumoVersionCode/-PlumoVersionName so every build is a
+        // strictly newer version than the last. Without this, every APK was
+        // versionCode 1 / "1.0" forever, so Android (and some device
+        // installers) could treat a fresh build as "nothing to update" and
+        // leave the OLD app/webview in place after "installing" the new APK.
+        versionCode project.hasProperty('lumoVersionCode') ? project.property('lumoVersionCode').toInteger() : 1
+        versionName project.hasProperty('lumoVersionName') ? project.property('lumoVersionName') : "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

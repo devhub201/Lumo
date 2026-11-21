@@ -57,7 +57,11 @@ jobs:
         run: pnpm build && pnpm exec cap sync android
       - name: Assemble debug APK
         working-directory: android
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+        # Every CI build gets a strictly higher versionCode (the GitHub run
+        # number only ever goes up) and a traceable versionName, so a fresh
+        # install can never be mistaken by Android/the installer for "no
+        # update available" and silently keep showing the old app/UI.
+        run: ./gradlew --no-daemon --stacktrace assembleDebug -PlumoVersionCode=${{ github.run_number }} -PlumoVersionName=1.0.${{ github.run_number }}
       - name: Verify APK
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
