@@ -1311,35 +1311,8 @@ function AuthenticationScreen({
         </span>
       </header>
       <div className="auth-layout">
-        <section className="auth-identity-panel">
-          <div
-            className={`auth-energy-orb auth-energy-${state}`}
-            aria-hidden="true"
-          >
-            <span />
-          </div>
-          <p className="auth-wordmark">LUMO</p>
-          <p className="auth-tagline">YOUR INTELLIGENCE. YOUR WORLD.</p>
-          <p className="auth-supporting">
-            A personal intelligence workspace for thinking, creating, solving,
-            and exploring — all in one place.
-          </p>
-          <div
-            className="auth-shortcuts"
-            aria-label="Available workspace areas"
-          >
-            <span>
-              <Sparkles size={14} /> Voice
-            </span>
-            <span>
-              <Activity size={14} /> Live Workspace
-            </span>
-            <span>
-              <Camera size={14} /> Vision
-            </span>
-          </div>
-        </section>
         <section className={`auth-card auth-state-${state}`} aria-live="polite">
+          <div className="auth-card-glow" aria-hidden="true" />
           <p className="auth-eyebrow">— secure access —</p>
           <h1>
             WELCOME BACK, <strong>PETER</strong>
@@ -1349,7 +1322,7 @@ function AuthenticationScreen({
             className={`auth-biometric-visual auth-orb-${state} ${busy ? "auth-pulsing" : ""} ${state === "failed" || state === "recovery" ? "auth-unavailable" : ""}`}
             aria-hidden="true"
           >
-            <LockKeyhole size={48} />
+            <LockKeyhole size={40} />
             <span />
           </div>
           <button
@@ -1379,81 +1352,34 @@ function AuthenticationScreen({
             onClick={onRecovery}
             disabled={busy}
           >
-            <LockKeyhole size={16} /> USE RECOVERY METHOD{" "}
-            <ChevronRight size={16} />
+            <LockKeyhole size={15} /> USE RECOVERY METHOD{" "}
+            <ChevronRight size={15} />
           </button>
+          <div className="auth-status-strip" aria-label="Security status">
+            <span
+              className={`auth-chip ${busy || capabilityLoading ? "auth-chip-pending" : verifiedCapability ? "auth-chip-ok" : "auth-chip-warn"}`}
+            >
+              <Fingerprint size={12} />
+              {busy || capabilityLoading
+                ? "checking…"
+                : verifiedCapability
+                  ? "biometric ready"
+                  : "unavailable"}
+            </span>
+            <span className="auth-chip">
+              <ShieldCheck size={12} />
+              native prompt only
+            </span>
+            <span className="auth-chip">
+              <Activity size={12} />
+              {state === "recovery" ? "recovery" : state}
+            </span>
+          </div>
           <p className="auth-privacy">
-            <ShieldCheck size={14} /> Biometric data stays inside the device.
-            LUMO receives only the verification result.
+            <ShieldCheck size={13} /> Biometric data stays on-device — LUMO
+            only receives the verification result.
           </p>
         </section>
-        <aside className="auth-security-panel">
-          <div className="auth-panel-title">
-            <ShieldCheck size={18} />
-            <span>SECURITY STATUS</span>
-            <b />
-          </div>
-          {capabilityLoading ? (
-            <div
-              className="auth-status-card auth-skeleton-card"
-              aria-label="Loading security capability"
-            >
-              <span className="auth-skeleton auth-skeleton-icon" />
-              <div className="auth-skeleton-copy">
-                <span className="auth-skeleton auth-skeleton-line wide" />
-                <span className="auth-skeleton auth-skeleton-line" />
-              </div>
-            </div>
-          ) : (
-            <div className="auth-status-card">
-              <span className="auth-status-icon">
-                <ShieldCheck size={18} />
-              </span>
-              <div>
-                <strong>
-                  {busy
-                    ? "Checking capability"
-                    : verifiedCapability
-                      ? "Awaiting verification"
-                      : "Unavailable"}
-                </strong>
-                <small>{busy ? "Querying native device" : message}</small>
-              </div>
-            </div>
-          )}
-          <div className="auth-fact">
-            <Fingerprint size={21} />
-            <div>
-              <span>Biometric availability</span>
-              <strong>
-                {busy
-                  ? "checking…"
-                  : verifiedCapability
-                    ? "available"
-                    : "unavailable"}
-              </strong>
-            </div>
-          </div>
-          <div className="auth-fact">
-            <LockKeyhole size={21} />
-            <div>
-              <span>Protected entry</span>
-              <strong>native prompt required</strong>
-            </div>
-          </div>
-          <div className="auth-fact">
-            <Activity size={21} />
-            <div>
-              <span>Session state</span>
-              <strong>
-                {state === "recovery" ? "recovery unavailable" : state}
-              </strong>
-            </div>
-          </div>
-          <div className="auth-quote">
-            “Your privacy is part of the architecture.”
-          </div>
-        </aside>
       </div>
     </div>
   );
