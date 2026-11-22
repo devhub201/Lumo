@@ -189,7 +189,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 36px 260px 110px;
+  padding: clamp(16px, 3dvh, 36px) 260px;
 }
 .lv-rail {
   position: absolute;
@@ -772,16 +772,29 @@
 
 /* stat strip */
 .lv-stats {
-  position: fixed;
-  bottom: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 14px;
+  /*
+   * Used to be position:fixed, floating over whatever .lv-stage happened to
+   * render underneath it. .lv-stage centers its own content vertically, and
+   * on a real phone height that centered content (brand text, status line,
+   * the mute/resume button) could land exactly where this bar sat — the
+   * button and a stat card painting on top of each other. Making this a
+   * normal flex sibling of .lv-stage (both direct children of .lv-shell's
+   * column) gives it its own reserved slot instead, so it can't overlap
+   * anything above it.
+   */
+  position: relative;
+  flex: 0 0 auto;
   z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 20px clamp(14px, 2.4dvh, 22px);
 }
 .lv-stat {
-  width: 168px;
+  flex: 1 1 140px;
+  max-width: 168px;
+  min-width: 0;
   border: 1px solid var(--lv-line);
   border-radius: 14px;
   background: linear-gradient(180deg, var(--lv-s2), var(--lv-s1));
