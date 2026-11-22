@@ -1296,90 +1296,100 @@ function AuthenticationScreen({
   const busy = state === "checking";
   const verifiedCapability = availability?.supported === true;
   const capabilityLoading = availability === null;
+  const muted = state === "failed" || state === "recovery";
+  const orbState: LumoOrbState = busy
+    ? "thinking"
+    : state === "success"
+      ? "speaking"
+      : muted
+        ? "muted"
+        : "listening";
   return (
-    <div className="auth-screen">
-      <header className="auth-topbar">
-        <div className="auth-brand">
-          <span className="auth-brand-orb">
-            <span />
-          </span>
-          <strong>LUMO</strong>
-          <i /> <span>YOUR INTELLIGENCE. YOUR WORLD.</span>
+    <div className="lv-shell">
+      <div className="lv-glow" />
+      <div className="lv-top">
+        <div className="lv-brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#lv-g-auth)" strokeWidth={1.6}>
+            <defs>
+              <linearGradient id="lv-g-auth" x1="0" x2="1">
+                <stop offset="0" stopColor="#33d6ff" />
+                <stop offset="1" stopColor="#a566ff" />
+              </linearGradient>
+            </defs>
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="12" r="3" fill="url(#lv-g-auth)" />
+          </svg>
+          LUMO <small>Personal AI</small>
         </div>
-        <span className="auth-topbar-status">
-          <span /> native security boundary
+        <span className="lv-pill">
+          <i /> Secure boundary
         </span>
-      </header>
-      <div className="auth-layout">
-        <section className={`auth-card auth-state-${state}`} aria-live="polite">
-          <div className="auth-card-glow" aria-hidden="true" />
-          <p className="auth-eyebrow">— secure access —</p>
-          <h1>
-            WELCOME BACK, <strong>PETER</strong>
-          </h1>
-          <p className="auth-message">{message}</p>
-          <div
-            className={`auth-biometric-visual auth-orb-${state} ${busy ? "auth-pulsing" : ""} ${state === "failed" || state === "recovery" ? "auth-unavailable" : ""}`}
-            aria-hidden="true"
-          >
-            <LockKeyhole size={40} />
-            <span />
-          </div>
-          <button
-            className="auth-primary-button"
-            type="button"
-            onClick={onAuthenticate}
-            disabled={busy || !verifiedCapability}
-          >
-            {busy ? (
-              <Loader2 size={18} className="spin" />
-            ) : state === "success" ? (
-              <Check size={18} />
-            ) : (
-              <Fingerprint size={18} />
-            )}
-            {busy
-              ? "CHECKING DEVICE…"
-              : state === "success"
-                ? "IDENTITY VERIFIED"
+      </div>
+      <div className="auth-stage">
+        <div className={`lv-kicker ${muted ? "lv-muted-kicker" : ""}`}>
+          <i />
+          {busy
+            ? "Verifying identity"
+            : state === "success"
+              ? "Identity verified"
+              : "Secure access"}
+        </div>
+        <LumoOrb state={orbState} size={168} />
+        <div className="lv-wordmark auth-welcome">
+          Welcome back, <span>Peter</span>
+        </div>
+        <div className={`lv-status-line ${muted ? "lv-muted" : ""}`} aria-live="polite">
+          <i />
+          {message}
+        </div>
+        <button
+          type="button"
+          className="lv-talk auth-cta"
+          onClick={onAuthenticate}
+          disabled={busy || !verifiedCapability}
+        >
+          {busy ? (
+            <Loader2 size={17} className="spin" />
+          ) : state === "success" ? (
+            <Check size={17} />
+          ) : (
+            <Fingerprint size={17} />
+          )}
+          {busy
+            ? "Checking device…"
+            : state === "success"
+              ? "Identity verified"
+              : verifiedCapability
+                ? "Authenticate with biometrics"
+                : "Biometrics unavailable"}
+        </button>
+        <button
+          type="button"
+          className="lv-vision-toggle auth-recovery"
+          onClick={onRecovery}
+          disabled={busy}
+        >
+          <LockKeyhole size={14} /> Use recovery method
+        </button>
+        <div className="lv-talk-hint auth-hint">
+          <span
+            className={
+              busy || capabilityLoading
+                ? ""
                 : verifiedCapability
-                  ? "AUTHENTICATE WITH BIOMETRICS"
-                  : "BIOMETRICS UNAVAILABLE"}
-          </button>
-          <button
-            className="auth-recovery-button"
-            type="button"
-            onClick={onRecovery}
-            disabled={busy}
+                  ? "auth-hint-ok"
+                  : "auth-hint-warn"
+            }
           >
-            <LockKeyhole size={15} /> USE RECOVERY METHOD{" "}
-            <ChevronRight size={15} />
-          </button>
-          <div className="auth-status-strip" aria-label="Security status">
-            <span
-              className={`auth-chip ${busy || capabilityLoading ? "auth-chip-pending" : verifiedCapability ? "auth-chip-ok" : "auth-chip-warn"}`}
-            >
-              <Fingerprint size={12} />
-              {busy || capabilityLoading
-                ? "checking…"
-                : verifiedCapability
-                  ? "biometric ready"
-                  : "unavailable"}
-            </span>
-            <span className="auth-chip">
-              <ShieldCheck size={12} />
-              native prompt only
-            </span>
-            <span className="auth-chip">
-              <Activity size={12} />
-              {state === "recovery" ? "recovery" : state}
-            </span>
-          </div>
-          <p className="auth-privacy">
-            <ShieldCheck size={13} /> Biometric data stays on-device — LUMO
-            only receives the verification result.
-          </p>
-        </section>
+            {busy || capabilityLoading
+              ? "checking biometric"
+              : verifiedCapability
+                ? "biometric ready"
+                : "biometric unavailable"}
+          </span>
+          &nbsp;&middot;&nbsp; native prompt only &nbsp;&middot;&nbsp; data
+          stays on-device
+        </div>
       </div>
     </div>
   );

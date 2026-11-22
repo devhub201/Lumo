@@ -17,12 +17,14 @@
   --lv-warn: #facc15;
 
   position: relative;
-  min-height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--lv-bg);
   color: #fff;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 .lv-shell * {
   box-sizing: border-box;
@@ -43,6 +45,7 @@
 .lv-top {
   position: relative;
   z-index: 5;
+  flex: 0 0 auto;
   min-height: 62px;
   display: flex;
   align-items: center;
@@ -128,6 +131,7 @@
 .lv-tabs {
   position: relative;
   z-index: 5;
+  flex: 0 0 auto;
   display: flex;
   gap: 4px;
   padding: 0 24px;
@@ -178,7 +182,9 @@
 .lv-stage {
   position: relative;
   z-index: 2;
-  min-height: calc(100vh - 62px - 46px);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -188,8 +194,10 @@
 .lv-rail {
   position: absolute;
   top: 118px;
+  bottom: 112px;
   width: 230px;
   z-index: 3;
+  overflow-y: auto;
 }
 .lv-rail.lv-left {
   left: 26px;
@@ -836,8 +844,12 @@
 
 /* Files tab */
 .lv-files {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   grid-template-columns: 260px 1fr;
+  align-content: start;
   gap: 18px;
   padding: 18px 28px 28px;
 }
@@ -961,4 +973,51 @@
   .lv-files {
     grid-template-columns: 1fr;
   }
+}
+
+/* lock/auth screen — built from the same lv-shell pieces as the rest of the
+   app (brand mark, LumoOrb, kicker, status line, talk-style buttons) so it
+   doesn't look like a separate product bolted onto the front of Lumo. */
+.auth-stage {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(6px, 1.4dvh, 14px);
+  padding: clamp(14px, 3dvh, 32px) 20px;
+  text-align: center;
+}
+.auth-welcome {
+  margin-top: clamp(10px, 2dvh, 18px);
+  font-size: clamp(20px, 4dvh, 30px);
+}
+.auth-cta {
+  margin-top: clamp(10px, 2dvh, 16px);
+  width: min(300px, 100%);
+  justify-content: center;
+}
+.lv-talk:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.auth-recovery {
+  margin-top: 2px;
+}
+.lv-vision-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.auth-hint {
+  max-width: 320px;
+}
+.auth-hint-ok {
+  color: #7cf2cf;
+}
+.auth-hint-warn {
+  color: #ffb98a;
 }
